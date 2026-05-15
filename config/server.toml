@@ -8,6 +8,7 @@ root = "data"
 duckdb_path = "data/duckdb/oxidelog.duckdb"
 spool_dir = "data/spool"
 export_dir = "data/export"
+parquet_dir = "data/parquet"
 
 [pipeline]
 ingress_queue = 100000

@@ -22,4 +22,9 @@ Default local endpoints:
 - TCP syslog input: `127.0.0.1:1514`
 - UDP syslog input: `127.0.0.1:1515`
 
+Archive API:
+
+- `POST /api/archive/parquet?limit=1000` writes `data/parquet/events-YYYYMMDD-HHMMSS.parquet` and returns the archive file metadata as JSON.
+- `GET /api/archive/files` lists parquet archive files as JSON.
+
 Server-facing config is available at `config/server.toml` and binds API/TCP/UDP to `0.0.0.0`.

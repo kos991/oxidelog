@@ -15,6 +15,7 @@ pub async fn run(config: Config) -> Result<()> {
     let udp_addr = config.server.udp_addr.clone();
     let api_addr = config.server.api_addr.clone();
     let duckdb_path = config.data.duckdb_path.clone();
+    let parquet_dir = config.data.parquet_dir.clone();
     let spool_dir = config.data.spool_dir.clone();
     let batch_size = config.pipeline.batch_size.max(1);
     let flush_interval = Duration::from_millis(config.pipeline.flush_interval_ms.max(100));
@@ -33,7 +34,7 @@ pub async fn run(config: Config) -> Result<()> {
     let _tcp_listener = start_tcp_listener(tcp_addr.clone(), tx.clone()).await?;
     let _udp_listener = start_udp_listener(udp_addr.clone(), tx, UdpDropCounter::default()).await?;
 
-    let app = fwlog_api::router(duckdb_path);
+    let app = fwlog_api::router(duckdb_path, parquet_dir);
     let listener = tokio::net::TcpListener::bind(&api_addr)
         .await
         .with_context(|| format!("bind api listener {api_addr}"))?;

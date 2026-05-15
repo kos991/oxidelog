@@ -18,7 +18,7 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 if (Test-Path data) {
     Remove-Item -LiteralPath data -Recurse -Force
 }
-New-Item -ItemType Directory -Force -Path data\spool, data\duckdb, data\export | Out-Null
+New-Item -ItemType Directory -Force -Path data\spool, data\duckdb, data\export, data\parquet | Out-Null
 
 cargo test --workspace
 cargo build --workspace
@@ -74,15 +74,21 @@ try {
 
     $events = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/events?limit=20"
     $csv = Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/events/export.csv?limit=20"
+    Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/archive/parquet?limit=20" | Out-Null
+    $archiveFiles = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/archive/files"
     $exportPath = Join-Path $repoRoot "data\export\events.csv"
     Set-Content -Path $exportPath -Value $csv.Content -Encoding UTF8
 
     $ingested = @($events).Count
     $parsed = @($events | Where-Object { $_.parse_status -eq "parsed" }).Count
     $failed = @($events | Where-Object { $_.parse_status -eq "failed" }).Count
+    $archiveCount = @($archiveFiles).Count
 
     if ($ingested -lt 5 -or $parsed -lt 4 -or $failed -lt 1) {
         throw "unexpected goal counts: ingested=$ingested parsed=$parsed failed=$failed"
+    }
+    if ($archiveCount -lt 1) {
+        throw "expected at least one archive file, got $archiveCount"
     }
 
     Write-Host "OxideLog V3 local goal passed"
@@ -91,6 +97,7 @@ try {
     Write-Host "Parsed: $parsed"
     Write-Host "Failed: $failed"
     Write-Host "Export: data/export/events.csv"
+    Write-Host "Archives: $archiveCount"
 } finally {
     Stop-Fwlogd -Process $proc
 }

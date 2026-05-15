@@ -32,6 +32,7 @@ pub struct DataConfig {
     pub duckdb_path: PathBuf,
     pub spool_dir: PathBuf,
     pub export_dir: PathBuf,
+    pub parquet_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,6 +67,7 @@ fn create_data_dirs(config: &Config) -> Result<()> {
     fs::create_dir_all(&config.data.root).context("create data root")?;
     fs::create_dir_all(&config.data.spool_dir).context("create spool dir")?;
     fs::create_dir_all(&config.data.export_dir).context("create export dir")?;
+    fs::create_dir_all(&config.data.parquet_dir).context("create parquet dir")?;
     if let Some(parent) = config.data.duckdb_path.parent() {
         fs::create_dir_all(parent).context("create duckdb dir")?;
     }

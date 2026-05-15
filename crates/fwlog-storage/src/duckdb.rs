@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use duckdb::{params, Connection};
 use fwlog_domain::{CanonicalEvent, ParseStatus};
 
+use crate::archive::ArchiveFile;
+
 pub struct DuckDbStore {
     conn: Connection,
 }
@@ -109,6 +111,33 @@ impl DuckDbStore {
         writer.flush().context("flush csv export")?;
         Ok(events.len())
     }
+
+    pub fn archive_parquet(
+        &self,
+        output_path: impl AsRef<Path>,
+        limit: usize,
+    ) -> Result<ArchiveFile> {
+        let output_path = output_path.as_ref();
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).context("create archive directory")?;
+        }
+
+        let sql_path = output_path.to_string_lossy().replace('\'', "''");
+        let sql = format!(
+            "COPY (SELECT * FROM events ORDER BY ingest_time DESC LIMIT ?) TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)",
+            sql_path
+        );
+        self.conn
+            .execute(&sql, [limit as i64])
+            .with_context(|| format!("archive events to parquet {}", output_path.display()))?;
+        let bytes = fs::metadata(output_path)
+            .with_context(|| format!("read archive metadata {}", output_path.display()))?
+            .len();
+        Ok(ArchiveFile {
+            path: output_path.to_path_buf(),
+            bytes,
+        })
+    }
 }
 
 fn row_to_event(row: &duckdb::Row<'_>) -> duckdb::Result<CanonicalEvent> {
@@ -200,5 +229,23 @@ mod tests {
         assert!(csv.contains("event_id"));
         assert!(csv.contains("one"));
         assert!(csv.contains("two"));
+    }
+
+    #[test]
+    fn archives_recent_events_to_parquet() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_path = dir.path().join("archives").join("events.parquet");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        store
+            .insert_batch(&[event("one", ParseStatus::Parsed), event("two", ParseStatus::Failed)])
+            .unwrap();
+
+        let archive = store.archive_parquet(&parquet_path, 10).unwrap();
+
+        assert_eq!(archive.path, parquet_path);
+        assert!(archive.path.exists());
+        assert!(archive.bytes > 0);
     }
 }

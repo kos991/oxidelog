@@ -15,7 +15,7 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 rm -rf data
-mkdir -p data/spool data/duckdb data/export
+mkdir -p data/spool data/duckdb data/export data/parquet
 
 cargo test --workspace
 cargo build --workspace
@@ -55,6 +55,8 @@ sleep 2
 
 curl -fsS "http://127.0.0.1:18080/api/events?limit=20" -o data/export/events.json
 curl -fsS "http://127.0.0.1:18080/api/events/export.csv?limit=20" -o data/export/events.csv
+curl -fsS -X POST "http://127.0.0.1:18080/api/archive/parquet?limit=20" -o data/export/archive.json
+curl -fsS "http://127.0.0.1:18080/api/archive/files" -o data/export/archive-files.json
 
 ingested=$(python3 - <<'PY'
 import json
@@ -77,9 +79,20 @@ with open("data/export/events.json", "r", encoding="utf-8") as f:
 print(sum(1 for e in events if e.get("parse_status") == "failed"))
 PY
 )
+archive_files=$(python3 - <<'PY'
+import json
+with open("data/export/archive-files.json", "r", encoding="utf-8") as f:
+    files = json.load(f)
+print(len(files))
+PY
+)
 
 if [ "$ingested" -lt 5 ] || [ "$parsed" -lt 4 ] || [ "$failed" -lt 1 ]; then
   echo "unexpected goal counts: ingested=$ingested parsed=$parsed failed=$failed" >&2
+  exit 1
+fi
+if [ "$archive_files" -lt 1 ]; then
+  echo "expected at least one archive file, got $archive_files" >&2
   exit 1
 fi
 
@@ -89,3 +102,4 @@ echo "Ingested: $ingested"
 echo "Parsed: $parsed"
 echo "Failed: $failed"
 echo "Export: data/export/events.csv"
+echo "Archives: $archive_files"
