@@ -1,0 +1,14 @@
+[package]
+name = "fwlog-storage"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+csv.workspace = true
+duckdb.workspace = true
+fwlog-domain = { path = "../fwlog-domain" }
+serde.workspace = true
+tempfile.workspace = true

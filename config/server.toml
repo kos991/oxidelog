@@ -1,0 +1,15 @@
+[server]
+api_addr = "0.0.0.0:8080"
+tcp_addr = "0.0.0.0:1514"
+udp_addr = "0.0.0.0:1515"
+
+[data]
+root = "data"
+duckdb_path = "data/duckdb/oxidelog.duckdb"
+spool_dir = "data/spool"
+export_dir = "data/export"
+
+[pipeline]
+ingress_queue = 100000
+batch_size = 10000
+flush_interval_ms = 1000

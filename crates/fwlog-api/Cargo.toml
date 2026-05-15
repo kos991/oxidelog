@@ -1,0 +1,17 @@
+[package]
+name = "fwlog-api"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+csv.workspace = true
+fwlog-storage = { path = "../fwlog-storage" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "fwlog-adapter"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+fwlog-domain = { path = "../fwlog-domain" }
+regex.workspace = true

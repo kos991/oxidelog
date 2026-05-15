@@ -1,0 +1,22 @@
+[package]
+name = "fwlogd"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+flume.workspace = true
+fwlog-adapter = { path = "../../crates/fwlog-adapter" }
+fwlog-api = { path = "../../crates/fwlog-api" }
+fwlog-domain = { path = "../../crates/fwlog-domain" }
+fwlog-ingress = { path = "../../crates/fwlog-ingress" }
+fwlog-spool = { path = "../../crates/fwlog-spool" }
+fwlog-storage = { path = "../../crates/fwlog-storage" }
+serde.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

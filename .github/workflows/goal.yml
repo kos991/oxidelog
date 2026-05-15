@@ -1,0 +1,24 @@
+name: goal
+
+on:
+  push:
+    branches: ["main", "master", "feature/**"]
+  pull_request:
+
+jobs:
+  local-goal:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run Windows local goal
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\goal.ps1
+      - name: Run Linux local goal
+        if: runner.os == 'Linux'
+        run: bash scripts/goal-linux.sh

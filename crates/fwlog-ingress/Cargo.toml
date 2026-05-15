@@ -1,0 +1,13 @@
+[package]
+name = "fwlog-ingress"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+flume.workspace = true
+fwlog-domain = { path = "../fwlog-domain" }
+futures.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true

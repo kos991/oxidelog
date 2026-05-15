@@ -1,0 +1,13 @@
+[package]
+name = "fwlog-spool"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+fwlog-domain = { path = "../fwlog-domain" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
