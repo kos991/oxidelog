@@ -81,16 +81,16 @@ pub async fn system_status(Extension(state): Extension<ApiState>) -> Response {
         Ok(metadata) if metadata.is_file() => metadata.len(),
         Ok(_) => 0,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     };
 
     let parquet_files = match archive_stats(state.parquet_dir.as_ref().as_path()) {
         Ok(stats) => stats,
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     };
     let frozen_files = match frozen_stats(state.frozen_dir.as_ref().as_path()) {
         Ok(stats) => stats,
-        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     };
 
     Json(SystemStatus {
@@ -113,7 +113,7 @@ pub async fn events(
 ) -> Response {
     match DuckDbStore::open(&*state.duckdb_path).and_then(|store| store.query_recent(query.limit)) {
         Ok(events) => Json(events).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -137,7 +137,7 @@ pub async fn export_csv(
             csv,
         )
             .into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -435,7 +435,7 @@ pub async fn archive_files(Extension(state): Extension<ApiState>) -> Response {
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -477,7 +477,7 @@ pub async fn archive_parquet(
 
     match result {
         Ok(file) => Json(ArchiveFileJson::from(file)).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -490,7 +490,7 @@ pub async fn archive_frozen_files(Extension(state): Extension<ApiState>) -> Resp
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -515,7 +515,7 @@ pub async fn archive_frozen(
 
     match result {
         Ok(file) => Json(ArchiveFileJson::from(file)).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 
@@ -528,9 +528,9 @@ pub async fn restore_frozen(
     {
         Ok(lines) => Json(lines).into_response(),
         Err(err) if err.downcast_ref::<OutsideFrozenDir>().is_some() => {
-            (StatusCode::BAD_REQUEST, err.to_string()).into_response()
+            (StatusCode::BAD_REQUEST, format!("{err:#}")).into_response()
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
 }
 

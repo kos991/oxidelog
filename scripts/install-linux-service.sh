@@ -58,6 +58,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/var/lib/oxidelog
+Environment=HOME=/var/lib/oxidelog
 ExecStart=/opt/oxidelog/bin/fwlogd --config /etc/oxidelog/config.toml
 Restart=always
 RestartSec=2

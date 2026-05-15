@@ -124,11 +124,11 @@ impl DuckDbStore {
 
         let sql_path = output_path.to_string_lossy().replace('\'', "''");
         let sql = format!(
-            "COPY (SELECT * FROM events ORDER BY ingest_time DESC LIMIT ?) TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)",
-            sql_path
+            "COPY (SELECT * FROM events ORDER BY ingest_time DESC LIMIT {}) TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)",
+            limit, sql_path
         );
         self.conn
-            .execute(&sql, [limit as i64])
+            .execute_batch(&sql)
             .with_context(|| format!("archive events to parquet {}", output_path.display()))?;
         let bytes = fs::metadata(output_path)
             .with_context(|| format!("read archive metadata {}", output_path.display()))?
