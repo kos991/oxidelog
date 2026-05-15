@@ -18,7 +18,7 @@ The deployment script clones `main` by default and runs the same goal on the ser
 
 Default local endpoints:
 
-- API: `http://127.0.0.1:8080`
+- API: `http://127.0.0.1:18080`
 - TCP syslog input: `127.0.0.1:1514`
 - UDP syslog input: `127.0.0.1:1515`
 

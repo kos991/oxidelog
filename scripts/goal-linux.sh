@@ -33,7 +33,7 @@ trap cleanup EXIT
 
 healthy=0
 for _ in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then
+  if curl -fsS http://127.0.0.1:18080/api/health >/dev/null; then
     healthy=1
     break
   fi
@@ -53,8 +53,8 @@ exec 3>&-
 
 sleep 2
 
-curl -fsS "http://127.0.0.1:8080/api/events?limit=20" -o data/export/events.json
-curl -fsS "http://127.0.0.1:8080/api/events/export.csv?limit=20" -o data/export/events.csv
+curl -fsS "http://127.0.0.1:18080/api/events?limit=20" -o data/export/events.json
+curl -fsS "http://127.0.0.1:18080/api/events/export.csv?limit=20" -o data/export/events.csv
 
 ingested=$(python3 - <<'PY'
 import json
@@ -84,7 +84,7 @@ if [ "$ingested" -lt 5 ] || [ "$parsed" -lt 4 ] || [ "$failed" -lt 1 ]; then
 fi
 
 echo "OxideLog V3 local goal passed"
-echo "API: http://127.0.0.1:8080"
+echo "API: http://127.0.0.1:18080"
 echo "Ingested: $ingested"
 echo "Parsed: $parsed"
 echo "Failed: $failed"

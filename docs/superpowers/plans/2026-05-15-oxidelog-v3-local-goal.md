@@ -16,7 +16,7 @@ These choices are fixed for implementation so the user is not asked to judge eve
 
 - Default local TCP port: `1514`, because Windows/Linux/macOS often require elevated privileges for port `514`.
 - Default local UDP port: `1515`, for the same reason.
-- Default API port: `8080`.
+- Default API port: `18080`.
 - Default data directory: `./data`.
 - First goal scope: local vertical slice only.
 - First goal excludes frontend, Parquet archive, and Frozen archive, but reserves their module paths and configuration keys.
@@ -68,10 +68,10 @@ Create these files:
 3. Run `cargo test --workspace`.
 4. Run `cargo build --workspace`.
 5. Start `fwlogd` in the background with `config/local.toml`.
-6. Wait until `GET http://127.0.0.1:8080/api/health` returns `200`.
+6. Wait until `GET http://127.0.0.1:18080/api/health` returns `200`.
 7. Send every line from `samples/sangfor.log` to TCP `127.0.0.1:1514`.
-8. Query `GET http://127.0.0.1:8080/api/events?limit=20`.
-9. Export `GET http://127.0.0.1:8080/api/events/export.csv` to `data/export/events.csv`.
+8. Query `GET http://127.0.0.1:18080/api/events?limit=20`.
+9. Export `GET http://127.0.0.1:18080/api/events/export.csv` to `data/export/events.csv`.
 10. Print a final success block containing ingested count, parsed count, failed count, and export path.
 11. Stop the background daemon process.
 
@@ -79,7 +79,7 @@ Expected final output shape:
 
 ```text
 OxideLog V3 local goal passed
-API: http://127.0.0.1:8080
+API: http://127.0.0.1:18080
 Ingested: 5
 Parsed: 4
 Failed: 1
@@ -471,7 +471,7 @@ Create `config/local.toml`:
 
 ```toml
 [server]
-api_addr = "127.0.0.1:8080"
+api_addr = "127.0.0.1:18080"
 tcp_addr = "127.0.0.1:1514"
 udp_addr = "127.0.0.1:1515"
 
@@ -525,7 +525,7 @@ cargo run -p fwlogd -- --config config/local.toml
 Expected logs include:
 
 ```text
-fwlogd listening api=127.0.0.1:8080 tcp=127.0.0.1:1514 udp=127.0.0.1:1515
+fwlogd listening api=127.0.0.1:18080 tcp=127.0.0.1:1514 udp=127.0.0.1:1515
 ```
 
 ## Task 9: One-Click Goal Script

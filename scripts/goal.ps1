@@ -44,7 +44,7 @@ try {
     $healthy = $false
     for ($i = 0; $i -lt 30; $i++) {
         try {
-            $health = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/health" -TimeoutSec 1
+            $health = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/health" -TimeoutSec 1
             if ($health.status -eq "ok") {
                 $healthy = $true
                 break
@@ -72,8 +72,8 @@ try {
 
     Start-Sleep -Seconds 2
 
-    $events = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/events?limit=20"
-    $csv = Invoke-WebRequest -Uri "http://127.0.0.1:8080/api/events/export.csv?limit=20"
+    $events = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/events?limit=20"
+    $csv = Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/events/export.csv?limit=20"
     $exportPath = Join-Path $repoRoot "data\export\events.csv"
     Set-Content -Path $exportPath -Value $csv.Content -Encoding UTF8
 
@@ -86,7 +86,7 @@ try {
     }
 
     Write-Host "OxideLog V3 local goal passed"
-    Write-Host "API: http://127.0.0.1:8080"
+    Write-Host "API: http://127.0.0.1:18080"
     Write-Host "Ingested: $ingested"
     Write-Host "Parsed: $parsed"
     Write-Host "Failed: $failed"
