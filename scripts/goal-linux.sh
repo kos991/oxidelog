@@ -33,7 +33,7 @@ trap cleanup EXIT
 
 healthy=0
 for _ in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:18080/api/health >/dev/null; then
+  if curl -fsS http://127.0.0.1:18080/api/health >/dev/null 2>&1; then
     healthy=1
     break
   fi
