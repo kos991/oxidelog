@@ -73,6 +73,7 @@ try {
     Start-Sleep -Seconds 2
 
     $events = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/events?limit=20"
+    $status = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/system/status"
     $csv = Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/events/export.csv?limit=20"
     Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/archive/parquet?limit=20" | Out-Null
     $archiveFiles = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/archive/files"
@@ -92,6 +93,9 @@ try {
 
     if ($ingested -lt 5 -or $parsed -lt 4 -or $failed -lt 1) {
         throw "unexpected goal counts: ingested=$ingested parsed=$parsed failed=$failed"
+    }
+    if ($status.service -ne "fwlogd") {
+        throw "unexpected system status service: $($status.service)"
     }
     if ($archiveCount -lt 1) {
         throw "expected at least one archive file, got $archiveCount"

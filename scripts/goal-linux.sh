@@ -54,6 +54,7 @@ exec 3>&-
 sleep 2
 
 curl -fsS "http://127.0.0.1:18080/api/events?limit=20" -o data/export/events.json
+curl -fsS "http://127.0.0.1:18080/api/system/status" -o data/export/system-status.json
 curl -fsS "http://127.0.0.1:18080/api/events/export.csv?limit=20" -o data/export/events.csv
 curl -fsS -X POST "http://127.0.0.1:18080/api/archive/parquet?limit=20" -o data/export/archive.json
 curl -fsS "http://127.0.0.1:18080/api/archive/files" -o data/export/archive-files.json
@@ -104,6 +105,13 @@ with open("data/export/frozen-files.json", "r", encoding="utf-8") as f:
 print(len(files))
 PY
 )
+status_service=$(python3 - <<'PY'
+import json
+with open("data/export/system-status.json", "r", encoding="utf-8") as f:
+    status = json.load(f)
+print(status.get("service", ""))
+PY
+)
 restored_lines=$(python3 - <<'PY'
 import json
 with open("data/export/frozen-restored.json", "r", encoding="utf-8") as f:
@@ -114,6 +122,10 @@ PY
 
 if [ "$ingested" -lt 5 ] || [ "$parsed" -lt 4 ] || [ "$failed" -lt 1 ]; then
   echo "unexpected goal counts: ingested=$ingested parsed=$parsed failed=$failed" >&2
+  exit 1
+fi
+if [ "$status_service" != "fwlogd" ]; then
+  echo "unexpected system status service: $status_service" >&2
   exit 1
 fi
 if [ "$archive_files" -lt 1 ]; then

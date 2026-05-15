@@ -17,6 +17,7 @@ pub struct ApiState {
 pub fn router(duckdb_path: PathBuf, parquet_dir: PathBuf, frozen_dir: PathBuf) -> Router {
     Router::new()
         .route("/api/health", get(handlers::health))
+        .route("/api/system/status", get(handlers::system_status))
         .route("/api/events", get(handlers::events))
         .route("/api/events/export.csv", get(handlers::export_csv))
         .route("/api/archive/files", get(handlers::archive_files))

@@ -55,12 +55,56 @@ pub struct RestoreQuery {
     path: PathBuf,
 }
 
+#[derive(Debug, Serialize)]
+struct SystemStatus {
+    service: &'static str,
+    duckdb_path: PathBuf,
+    parquet_dir: PathBuf,
+    frozen_dir: PathBuf,
+    duckdb_bytes: u64,
+    parquet_files: usize,
+    parquet_bytes: u64,
+    frozen_files: usize,
+    frozen_bytes: u64,
+}
+
 fn default_limit() -> usize {
     20
 }
 
 pub async fn health() -> Json<serde_json::Value> {
     Json(json!({"status":"ok","service":"fwlogd"}))
+}
+
+pub async fn system_status(Extension(state): Extension<ApiState>) -> Response {
+    let duckdb_bytes = match fs::metadata(&*state.duckdb_path) {
+        Ok(metadata) if metadata.is_file() => metadata.len(),
+        Ok(_) => 0,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    };
+
+    let parquet_files = match archive_stats(state.parquet_dir.as_ref().as_path()) {
+        Ok(stats) => stats,
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    };
+    let frozen_files = match frozen_stats(state.frozen_dir.as_ref().as_path()) {
+        Ok(stats) => stats,
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    };
+
+    Json(SystemStatus {
+        service: "fwlogd",
+        duckdb_path: state.duckdb_path.as_ref().clone(),
+        parquet_dir: state.parquet_dir.as_ref().clone(),
+        frozen_dir: state.frozen_dir.as_ref().clone(),
+        duckdb_bytes,
+        parquet_files: parquet_files.0,
+        parquet_bytes: parquet_files.1,
+        frozen_files: frozen_files.0,
+        frozen_bytes: frozen_files.1,
+    })
+    .into_response()
 }
 
 pub async fn events(
@@ -297,6 +341,78 @@ mod tests {
         assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[tokio::test]
+    async fn system_status_reports_paths_sizes_and_missing_archive_dirs_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        let nested_parquet_dir = parquet_dir.join("nested");
+        let nested_frozen_dir = frozen_dir.join("nested");
+        std::fs::create_dir_all(&nested_parquet_dir).unwrap();
+        std::fs::create_dir_all(&nested_frozen_dir).unwrap();
+        std::fs::write(&db_path, b"duckdb").unwrap();
+        std::fs::write(parquet_dir.join("events-a.parquet"), b"root").unwrap();
+        std::fs::write(nested_parquet_dir.join("events-b.parquet"), b"nested").unwrap();
+        std::fs::write(parquet_dir.join("ignore.txt"), b"ignore").unwrap();
+        std::fs::write(frozen_dir.join("frozen-a.raw.zst"), b"raw").unwrap();
+        std::fs::write(nested_frozen_dir.join("frozen-b.raw.zst"), b"zstd").unwrap();
+        std::fs::write(frozen_dir.join("ignore.zst"), b"ignore").unwrap();
+
+        let app = crate::router(db_path.clone(), parquet_dir.clone(), frozen_dir.clone());
+
+        let status = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/system/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status.status(), StatusCode::OK);
+        let status: serde_json::Value =
+            serde_json::from_slice(&to_bytes(status.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(status["service"], "fwlogd");
+        assert_eq!(status["duckdb_path"], db_path.to_str().unwrap());
+        assert_eq!(status["parquet_dir"], parquet_dir.to_str().unwrap());
+        assert_eq!(status["frozen_dir"], frozen_dir.to_str().unwrap());
+        assert_eq!(status["duckdb_bytes"], 6);
+        assert_eq!(status["parquet_files"], 2);
+        assert_eq!(status["parquet_bytes"], 10);
+        assert_eq!(status["frozen_files"], 2);
+        assert_eq!(status["frozen_bytes"], 7);
+
+        let missing_app = crate::router(
+            dir.path().join("missing.duckdb"),
+            dir.path().join("missing-parquet"),
+            dir.path().join("missing-frozen"),
+        );
+
+        let missing_status = missing_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/system/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_status.status(), StatusCode::OK);
+        let missing_status: serde_json::Value = serde_json::from_slice(
+            &to_bytes(missing_status.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(missing_status["duckdb_bytes"], 0);
+        assert_eq!(missing_status["parquet_files"], 0);
+        assert_eq!(missing_status["parquet_bytes"], 0);
+        assert_eq!(missing_status["frozen_files"], 0);
+        assert_eq!(missing_status["frozen_bytes"], 0);
+    }
+
     fn percent_encode(value: &str) -> String {
         value
             .bytes()
@@ -321,6 +437,30 @@ pub async fn archive_files(Extension(state): Extension<ApiState>) -> Response {
         .into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+}
+
+fn archive_stats(dir: &Path) -> anyhow::Result<(usize, u64)> {
+    if !dir.exists() {
+        return Ok((0, 0));
+    }
+
+    let files = list_archive_files(dir)?;
+    Ok((
+        files.len(),
+        files.into_iter().map(|file| file.bytes).sum(),
+    ))
+}
+
+fn frozen_stats(dir: &Path) -> anyhow::Result<(usize, u64)> {
+    if !dir.exists() {
+        return Ok((0, 0));
+    }
+
+    let files = list_frozen_files(dir)?;
+    Ok((
+        files.len(),
+        files.into_iter().map(|file| file.bytes).sum(),
+    ))
 }
 
 pub async fn archive_parquet(
