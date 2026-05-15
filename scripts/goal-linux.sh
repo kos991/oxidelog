@@ -3,6 +3,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+if [ -f "$HOME/.cargo/env" ]; then
+  # Prefer rustup-managed stable Rust over old distro cargo packages.
+  # shellcheck disable=SC1090
+  . "$HOME/.cargo/env"
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo not found in PATH. Install Rust with rustup before running this goal." >&2
   exit 1
