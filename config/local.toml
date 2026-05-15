@@ -9,6 +9,7 @@ duckdb_path = "data/duckdb/oxidelog.duckdb"
 spool_dir = "data/spool"
 export_dir = "data/export"
 parquet_dir = "data/parquet"
+frozen_dir = "data/frozen"
 
 [pipeline]
 ingress_queue = 100000

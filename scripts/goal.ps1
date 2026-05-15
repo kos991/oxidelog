@@ -18,7 +18,7 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 if (Test-Path data) {
     Remove-Item -LiteralPath data -Recurse -Force
 }
-New-Item -ItemType Directory -Force -Path data\spool, data\duckdb, data\export, data\parquet | Out-Null
+New-Item -ItemType Directory -Force -Path data\spool, data\duckdb, data\export, data\parquet, data\frozen | Out-Null
 
 cargo test --workspace
 cargo build --workspace
@@ -76,6 +76,10 @@ try {
     $csv = Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/events/export.csv?limit=20"
     Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/archive/parquet?limit=20" | Out-Null
     $archiveFiles = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/archive/files"
+    $frozen = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/archive/frozen?limit=20"
+    $frozenFiles = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/archive/frozen"
+    $restorePath = [System.Uri]::EscapeDataString($frozen.path)
+    $restored = Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/archive/frozen/restore?path=$restorePath"
     $exportPath = Join-Path $repoRoot "data\export\events.csv"
     Set-Content -Path $exportPath -Value $csv.Content -Encoding UTF8
 
@@ -83,12 +87,20 @@ try {
     $parsed = @($events | Where-Object { $_.parse_status -eq "parsed" }).Count
     $failed = @($events | Where-Object { $_.parse_status -eq "failed" }).Count
     $archiveCount = @($archiveFiles).Count
+    $frozenCount = @($frozenFiles).Count
+    $restoredCount = @($restored).Count
 
     if ($ingested -lt 5 -or $parsed -lt 4 -or $failed -lt 1) {
         throw "unexpected goal counts: ingested=$ingested parsed=$parsed failed=$failed"
     }
     if ($archiveCount -lt 1) {
         throw "expected at least one archive file, got $archiveCount"
+    }
+    if ($frozenCount -lt 1) {
+        throw "expected at least one frozen archive file, got $frozenCount"
+    }
+    if ($restoredCount -lt 5) {
+        throw "expected at least five restored frozen lines, got $restoredCount"
     }
 
     Write-Host "OxideLog V3 local goal passed"
@@ -98,6 +110,8 @@ try {
     Write-Host "Failed: $failed"
     Write-Host "Export: data/export/events.csv"
     Write-Host "Archives: $archiveCount"
+    Write-Host "Frozen archives: $frozenCount"
+    Write-Host "Restored frozen lines: $restoredCount"
 } finally {
     Stop-Fwlogd -Process $proc
 }

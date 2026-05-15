@@ -11,17 +11,27 @@ use axum::{
 pub struct ApiState {
     pub duckdb_path: Arc<PathBuf>,
     pub parquet_dir: Arc<PathBuf>,
+    pub frozen_dir: Arc<PathBuf>,
 }
 
-pub fn router(duckdb_path: PathBuf, parquet_dir: PathBuf) -> Router {
+pub fn router(duckdb_path: PathBuf, parquet_dir: PathBuf, frozen_dir: PathBuf) -> Router {
     Router::new()
         .route("/api/health", get(handlers::health))
         .route("/api/events", get(handlers::events))
         .route("/api/events/export.csv", get(handlers::export_csv))
         .route("/api/archive/files", get(handlers::archive_files))
         .route("/api/archive/parquet", post(handlers::archive_parquet))
+        .route(
+            "/api/archive/frozen",
+            get(handlers::archive_frozen_files).post(handlers::archive_frozen),
+        )
+        .route(
+            "/api/archive/frozen/restore",
+            get(handlers::restore_frozen),
+        )
         .layer(Extension(ApiState {
             duckdb_path: Arc::new(duckdb_path),
             parquet_dir: Arc::new(parquet_dir),
+            frozen_dir: Arc::new(frozen_dir),
         }))
 }
