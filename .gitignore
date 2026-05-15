@@ -1,0 +1,6 @@
+.worktrees
+.worktrees/
+target/
+data/
+*.log
+*.tmp
