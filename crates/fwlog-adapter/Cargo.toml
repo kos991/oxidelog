@@ -7,3 +7,6 @@ version.workspace = true
 [dependencies]
 fwlog-domain = { path = "../fwlog-domain" }
 regex.workspace = true
+
+[dev-dependencies]
+chrono.workspace = true
