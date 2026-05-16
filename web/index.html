@@ -7,100 +7,129 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0b1115;
-      --surface: #111a20;
-      --surface-2: #162229;
+      --bg: #070d11;
+      --panel: #0d151a;
+      --panel-2: #111d24;
+      --panel-3: #16242c;
       --line: #263842;
-      --text: #d9e3e8;
-      --muted: #8fa0aa;
-      --accent: #29c7ad;
-      --good: #5ad685;
-      --warn: #f0ba4d;
-      --bad: #ee7078;
+      --line-soft: #1c2b33;
+      --text: #dce7ec;
+      --muted: #8fa2ad;
+      --accent: #2dd4bf;
+      --blue: #60a5fa;
+      --good: #4ade80;
+      --warn: #fbbf24;
+      --bad: #fb7185;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
       min-width: 320px;
+      overflow: hidden;
       background: var(--bg);
       color: var(--text);
-      font: 13px/1.45 "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      font: 13px/1.45 "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
     }
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--line);
-      background: #0f171d;
+    button, input, select {
+      font: inherit;
+      letter-spacing: 0;
     }
-    h1, h2, p { margin: 0; }
-    h1 { font-size: 18px; letter-spacing: 0; }
-    h2 { margin-bottom: 8px; font-size: 14px; font-weight: 650; }
-    a, button {
+    button {
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: var(--surface-2);
+      background: var(--panel-3);
       color: var(--text);
-      padding: 6px 10px;
-      text-decoration: none;
+      padding: 7px 10px;
       cursor: pointer;
       white-space: nowrap;
     }
-    a:hover, button:hover { border-color: var(--accent); }
-    input {
-      width: 150px;
+    button:hover { border-color: var(--accent); }
+    input, select {
+      width: 100%;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: #0e151a;
+      background: #081116;
       color: var(--text);
-      padding: 6px 8px;
+      padding: 7px 9px;
+      outline: none;
     }
-    main {
+    input:focus, select:focus { border-color: var(--accent); }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 18px; font-weight: 700; }
+    h2 { font-size: 14px; font-weight: 700; }
+    h3 { font-size: 13px; font-weight: 700; }
+    .app {
       display: grid;
-      grid-template-columns: minmax(280px, 380px) 1fr;
-      gap: 12px;
-      padding: 12px;
+      grid-template-columns: 248px minmax(0, 1fr);
+      height: 100%;
     }
-    section {
+    .sidebar {
       min-width: 0;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--surface);
-      padding: 12px;
+      border-right: 1px solid var(--line);
+      background: #0b1318;
+      display: flex;
+      flex-direction: column;
     }
-    .brand, .toolbar, .status {
+    .brand {
+      height: 64px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       gap: 10px;
-      min-width: 0;
     }
-    .brand span, .muted { color: var(--muted); }
-    .toolbar { justify-content: flex-end; flex-wrap: wrap; }
-    .stack { display: grid; gap: 12px; }
-    .metrics {
+    .logo {
+      width: 34px;
+      height: 34px;
+      border: 1px solid #1f766e;
+      border-radius: 6px;
+      background: #0f3e3b;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      place-items: center;
+      color: var(--accent);
+      font-weight: 800;
+    }
+    .brand small, .muted { color: var(--muted); }
+    .nav {
+      display: grid;
+      gap: 4px;
+      padding: 12px;
+    }
+    .nav button {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+    }
+    .nav button.active {
+      border-color: var(--line);
+      background: var(--panel-2);
+      color: var(--accent);
+    }
+    .nav-icon { text-align: center; font-size: 15px; }
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      display: grid;
       gap: 8px;
     }
-    .metric {
-      min-height: 58px;
+    .health {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: #0e151a;
-      padding: 8px;
-    }
-    .metric span { color: var(--muted); }
-    .metric strong {
-      display: block;
-      margin-top: 2px;
-      color: var(--accent);
-      font-size: 18px;
-      overflow-wrap: anywhere;
+      background: #081116;
     }
     .dot {
       display: inline-block;
@@ -111,53 +140,146 @@
     }
     .dot.ok { background: var(--good); }
     .dot.fail { background: var(--bad); }
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 64px minmax(0, 1fr);
+    }
+    .topbar {
+      min-width: 0;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #0d151a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title-block {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar input { width: 180px; }
+    .content {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+    .page { display: none; }
+    .page.active { display: block; }
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+    .dashboard-grid {
+      grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+      align-items: start;
+    }
+    .metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .wide-metrics {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .metric {
+      min-width: 0;
+      min-height: 64px;
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      background: #091217;
+      padding: 9px;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--accent);
+      font-size: 20px;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+    .metric .bad { color: var(--bad); }
+    .metric .good { color: var(--good); }
+    .metric .blue { color: var(--blue); }
     dl {
       display: grid;
       grid-template-columns: 92px minmax(0, 1fr);
-      gap: 6px 8px;
+      gap: 7px 10px;
       margin: 0;
     }
     dt { color: var(--muted); }
-    dd { margin: 0; overflow-wrap: anywhere; }
-    .split {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
+    dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
-    .cold-form {
+    .status-list {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
     }
-    .cold-form input, .cold-form button { width: 100%; }
-    .cold-form button { grid-column: 1 / -1; }
-    .list {
+    .status-row {
       display: grid;
-      gap: 6px;
-      max-height: 230px;
-      overflow: auto;
-      margin-top: 8px;
-    }
-    .file {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
-      border: 1px solid var(--line);
+      grid-template-columns: 110px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 8px;
+      border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #0e151a;
-      padding: 7px 8px;
+      background: #091217;
     }
-    .file span:first-child { overflow-wrap: anywhere; }
-    .file span:last-child { color: var(--muted); }
+    .bar {
+      height: 6px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #1b2a32;
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--accent);
+    }
     .table-wrap {
       max-height: calc(100vh - 166px);
       overflow: auto;
       border: 1px solid var(--line);
       border-radius: 4px;
     }
-    table { width: 100%; min-width: 980px; border-collapse: collapse; }
+    .table-wrap.tall { max-height: calc(100vh - 122px); }
+    table {
+      width: 100%;
+      min-width: 1080px;
+      border-collapse: collapse;
+    }
     th, td {
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--line-soft);
       padding: 7px 8px;
       text-align: left;
       vertical-align: top;
@@ -166,133 +288,329 @@
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #10181e;
+      background: #101a20;
       color: var(--muted);
-      font-weight: 600;
+      font-weight: 650;
     }
     td {
-      max-width: 380px;
+      max-width: 420px;
       overflow-wrap: anywhere;
     }
-    .raw {
-      color: #c8d4da;
-      font: 12px/1.45 Consolas, "Courier New", monospace;
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    .raw { color: #c8d4da; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 58px;
+      justify-content: center;
+      border-radius: 3px;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      background: #0b151a;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .badge.ok {
+      border-color: #1d6b44;
+      background: #0c2619;
+      color: var(--good);
+    }
+    .badge.fail {
+      border-color: #7a2838;
+      background: #2a1118;
+      color: var(--bad);
+    }
+    .files {
+      max-height: 246px;
+      overflow: auto;
+      display: grid;
+      gap: 6px;
+    }
+    .file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      background: #091217;
+    }
+    .search-form {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .search-form label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .terminal {
+      height: calc(100vh - 214px);
+      min-height: 360px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #03080b;
+      padding: 10px;
+    }
+    .log-line {
+      display: grid;
+      grid-template-columns: 190px 80px minmax(0, 1fr);
+      gap: 10px;
+      padding: 3px 0;
+      border-bottom: 1px solid #0d171c;
     }
     .error {
       display: none;
-      border: 1px solid #6b2b33;
+      margin-bottom: 12px;
+      border: 1px solid #7a2838;
       border-radius: 4px;
-      background: #3a171c;
-      color: #ffd1d5;
-      padding: 8px;
+      background: #2a1118;
+      color: #ffd5db;
+      padding: 9px;
     }
-    @media (max-width: 920px) {
-      header { align-items: flex-start; }
-      main, .split { grid-template-columns: 1fr; }
-      .brand { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .empty {
+      color: var(--muted);
+      padding: 12px;
+    }
+    @media (max-width: 1180px) {
+      body { overflow: auto; }
+      .app { grid-template-columns: 1fr; height: auto; min-height: 100%; }
+      .sidebar { position: static; }
+      .nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .main { min-height: 0; }
+      .dashboard-grid, .wide-metrics, .search-form { grid-template-columns: 1fr 1fr; }
+      .toolbar { justify-content: flex-start; }
+    }
+    @media (max-width: 720px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .nav { grid-template-columns: 1fr 1fr; }
+      .dashboard-grid, .metrics, .wide-metrics, .search-form { grid-template-columns: 1fr; }
+      .toolbar input { width: 100%; }
+      .log-line { grid-template-columns: 1fr; gap: 2px; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <h1>OxideLog</h1>
-      <span>安全运营中心</span>
-      <span class="status"><i id="healthDot" class="dot"></i><b id="healthText">连接中</b></span>
-    </div>
-    <div class="toolbar">
-      <span id="updated" class="muted">未刷新</span>
-      <input id="apiToken" type="password" autocomplete="off" placeholder="API Token">
-      <button id="exportCsv" type="button">导出 CSV</button>
-      <button id="refresh" type="button">刷新</button>
-    </div>
-  </header>
-  <main>
-    <div class="stack">
-      <section>
-        <h2>系统态势</h2>
-        <div class="metrics">
-          <div class="metric"><span>事件总数</span><strong id="eventsTotal">0</strong></div>
-          <div class="metric"><span>解析失败</span><strong id="eventsFailed">0</strong></div>
-          <div class="metric"><span>DuckDB</span><strong id="duckdbBytes">0 B</strong></div>
-          <div class="metric"><span>归档文件</span><strong id="archiveTotal">0</strong></div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">OL</div>
+        <div>
+          <h1>OxideLog</h1>
+          <small>NAT 日志安全运营中心</small>
         </div>
-      </section>
-      <section>
-        <h2>运行信息</h2>
-        <dl>
-          <dt>服务</dt><dd id="service">-</dd>
-          <dt>认证</dt><dd id="authEnabled">-</dd>
-          <dt>解析成功</dt><dd id="eventsParsed">-</dd>
-          <dt>TCP 收入</dt><dd id="tcpReceived">-</dd>
-          <dt>UDP 收入</dt><dd id="udpReceived">-</dd>
-          <dt>UDP 丢弃</dt><dd id="udpDropped">-</dd>
-          <dt>落库批次</dt><dd id="batchesStored">-</dd>
-          <dt>数据库</dt><dd id="duckdbPath">-</dd>
-          <dt>Parquet</dt><dd id="parquetDir">-</dd>
-          <dt>冰冻目录</dt><dd id="frozenDir">-</dd>
-        </dl>
-      </section>
-      <section>
-        <h2>归档资产</h2>
-        <div class="split">
-          <div>
-            <p class="muted">Parquet 文件</p>
-            <div id="archiveFiles" class="list"></div>
-          </div>
-          <div>
-            <p class="muted">Zstd Raw 文件</p>
-            <div id="frozenFiles" class="list"></div>
-          </div>
-        </div>
-      </section>
-      <section>
-        <h2>历史追溯</h2>
-        <div class="cold-form">
-          <input id="coldDay" type="text" placeholder="日期 20260516">
-          <input id="coldSrcIp" type="text" placeholder="源 IP">
-          <input id="coldDstIp" type="text" placeholder="目的 IP">
-          <input id="coldKeyword" type="text" placeholder="关键字">
-          <button id="coldSearch" type="button">流式检索 Frozen</button>
-        </div>
-        <p id="coldStatus" class="muted">不解压落盘，直接扫描 .tar.zst</p>
-      </section>
-      <div id="error" class="error"></div>
-    </div>
-    <section>
-      <h2>最近事件</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>状态</th>
-              <th>源地址</th>
-              <th>目的地址</th>
-              <th>动作</th>
-              <th>原始日志</th>
-            </tr>
-          </thead>
-          <tbody id="eventsBody">
-            <tr><td colspan="6" class="muted">加载中</td></tr>
-          </tbody>
-        </table>
       </div>
-    </section>
-  </main>
+      <nav class="nav" aria-label="主导航">
+        <button class="active" data-page="dashboard"><span class="nav-icon">▦</span><span>态势总览</span></button>
+        <button data-page="events"><span class="nav-icon">≡</span><span>日志检索</span></button>
+        <button data-page="cold"><span class="nav-icon">◎</span><span>历史追溯</span></button>
+        <button data-page="ops"><span class="nav-icon">⚙</span><span>运行维护</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="health">
+          <span><i id="healthDot" class="dot"></i> <b id="healthText">连接中</b></span>
+          <span id="serviceName" class="muted">fwlogd</span>
+        </div>
+        <input id="apiToken" type="password" autocomplete="off" placeholder="API Token">
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="title-block">
+          <h1 id="pageTitle">态势总览</h1>
+          <span id="updated" class="muted">尚未刷新</span>
+        </div>
+        <div class="toolbar">
+          <button id="exportCsv" type="button">导出 CSV</button>
+          <button id="refresh" type="button">刷新</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div id="error" class="error"></div>
+
+        <section id="page-dashboard" class="page active">
+          <div class="grid dashboard-grid">
+            <div class="grid">
+              <div class="panel">
+                <div class="panel-head"><h2>系统态势</h2><span class="muted">实时 API</span></div>
+                <div class="grid metrics">
+                  <div class="metric"><span>事件总数</span><strong id="eventsTotal">0</strong></div>
+                  <div class="metric"><span>解析成功</span><strong id="eventsParsed" class="good">0</strong></div>
+                  <div class="metric"><span>解析失败</span><strong id="eventsFailed" class="bad">0</strong></div>
+                  <div class="metric"><span>成功率</span><strong id="parseRate" class="blue">0%</strong></div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h2>存储资产</h2><span id="archiveTotal" class="muted">0 个文件</span></div>
+                <div class="grid metrics">
+                  <div class="metric"><span>DuckDB 热库</span><strong id="duckdbBytes">0 B</strong></div>
+                  <div class="metric"><span>Parquet 冷库</span><strong id="parquetBytes">0 B</strong></div>
+                  <div class="metric"><span>Frozen 原始归档</span><strong id="frozenBytes">0 B</strong></div>
+                  <div class="metric"><span>Worker 错误</span><strong id="workerErrors" class="bad">0</strong></div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h2>接入与背压</h2><span class="muted">当前进程计数</span></div>
+                <div class="status-list">
+                  <div class="status-row"><span>TCP 接收</span><div class="bar"><i id="tcpBar"></i></div><b id="tcpReceived">0</b></div>
+                  <div class="status-row"><span>UDP 接收</span><div class="bar"><i id="udpBar"></i></div><b id="udpReceived">0</b></div>
+                  <div class="status-row"><span>UDP 丢弃</span><div class="bar"><i id="dropBar"></i></div><b id="udpDropped">0</b></div>
+                  <div class="status-row"><span>落库批次</span><div class="bar"><i id="batchBar"></i></div><b id="batchesStored">0</b></div>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>最近事件</h2><button data-page-target="events" type="button">打开检索</button></div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>接收时间</th>
+                      <th>状态</th>
+                      <th>源地址</th>
+                      <th>目的地址</th>
+                      <th>协议</th>
+                      <th>动作</th>
+                      <th>原始日志</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboardEvents"><tr><td colspan="7" class="empty">加载中</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-events" class="page">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>热库日志检索</h2>
+              <span class="muted">最近 200 条，来自 DuckDB 热库</span>
+            </div>
+            <div class="table-wrap tall">
+              <table>
+                <thead>
+                  <tr>
+                    <th>接收时间</th>
+                    <th>状态</th>
+                    <th>源 IP</th>
+                    <th>源端口</th>
+                    <th>目的 IP</th>
+                    <th>目的端口</th>
+                    <th>协议</th>
+                    <th>动作</th>
+                    <th>原始日志</th>
+                  </tr>
+                </thead>
+                <tbody id="eventsBody"><tr><td colspan="9" class="empty">加载中</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-cold" class="page">
+          <div class="grid">
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Frozen 历史追溯</h2>
+                <span id="coldStatus" class="muted">不解压落盘，直接流式扫描 raw-import-*.tar.zst</span>
+              </div>
+              <div class="search-form">
+                <label>日期<input id="coldDay" type="text" placeholder="20260516"></label>
+                <label>源 IP<input id="coldSrcIp" type="text" placeholder="2.55.80.6"></label>
+                <label>目的 IP<input id="coldDstIp" type="text" placeholder="211.93.49.88"></label>
+                <label>动作<input id="coldAction" type="text" placeholder="snat"></label>
+                <label>关键字<input id="coldKeyword" type="text" placeholder="NAT类型"></label>
+                <button id="coldSearch" type="button">开始追溯</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>追溯结果</h2><span id="coldSummary" class="muted">等待查询</span></div>
+              <div class="table-wrap tall">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>接收时间</th>
+                      <th>状态</th>
+                      <th>源地址</th>
+                      <th>目的地址</th>
+                      <th>协议</th>
+                      <th>动作</th>
+                      <th>原始日志</th>
+                    </tr>
+                  </thead>
+                  <tbody id="coldBody"><tr><td colspan="7" class="empty">暂无结果</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-ops" class="page">
+          <div class="grid dashboard-grid">
+            <div class="grid">
+              <div class="panel">
+                <div class="panel-head"><h2>运行信息</h2><span class="muted">本机部署</span></div>
+                <dl>
+                  <dt>服务</dt><dd id="service">-</dd>
+                  <dt>认证</dt><dd id="authEnabled">-</dd>
+                  <dt>数据库</dt><dd id="duckdbPath">-</dd>
+                  <dt>Parquet</dt><dd id="parquetDir">-</dd>
+                  <dt>Frozen</dt><dd id="frozenDir">-</dd>
+                  <dt>Spool 写入</dt><dd id="spoolWritten">-</dd>
+                  <dt>已落库</dt><dd id="eventsStored">-</dd>
+                </dl>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h2>归档资产</h2><span class="muted">只展示物理文件</span></div>
+                <div class="grid metrics">
+                  <div class="metric"><span>Parquet 文件</span><strong id="parquetFiles">0</strong></div>
+                  <div class="metric"><span>Frozen 文件</span><strong id="frozenFiles">0</strong></div>
+                </div>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="panel">
+                <div class="panel-head"><h2>Parquet 文件</h2><span class="muted">冷库快照</span></div>
+                <div id="archiveFiles" class="files"></div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><h2>Frozen 文件</h2><span class="muted">原始归档</span></div>
+                <div id="frozenFileList" class="files"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
-    const endpoints = {
-      health: "/api/health",
-      status: "/api/system/status",
-      events: "/api/events?limit=200",
-      archive: "/api/archive/files",
-      frozen: "/api/archive/frozen"
+    const state = { status: null, events: [] };
+    const pageTitles = {
+      dashboard: "态势总览",
+      events: "日志检索",
+      cold: "历史追溯",
+      ops: "运行维护"
     };
 
-    function value(input) {
-      if (input === null || input === undefined || input === "") return "-";
-      return String(input);
+    function text(value, fallback = "-") {
+      return value === null || value === undefined || value === "" ? fallback : String(value);
+    }
+
+    function number(value) {
+      return Number(value || 0).toLocaleString("zh-CN");
     }
 
     function bytes(input) {
@@ -303,13 +621,6 @@
       return (size / 1024 / 1024 / 1024).toFixed(1) + " GB";
     }
 
-    async function getJson(path) {
-      const headers = authHeaders("application/json");
-      const response = await fetch(path, { headers });
-      if (!response.ok) throw new Error(path + " 返回 " + response.status);
-      return response.json();
-    }
-
     function authHeaders(accept) {
       const headers = {};
       if (accept) headers.Accept = accept;
@@ -318,8 +629,145 @@
       return headers;
     }
 
+    async function getJson(path) {
+      const response = await fetch(path, { headers: authHeaders("application/json") });
+      if (!response.ok) throw new Error(path + " 返回 " + response.status);
+      return response.json();
+    }
+
+    function setHealth(ok, label) {
+      $("healthDot").className = "dot " + (ok ? "ok" : "fail");
+      $("healthText").textContent = label;
+    }
+
+    function showError(error) {
+      $("error").textContent = error.message || String(error);
+      $("error").style.display = "block";
+    }
+
+    function clearError() {
+      $("error").style.display = "none";
+      $("error").textContent = "";
+    }
+
+    function switchPage(page) {
+      document.querySelectorAll(".page").forEach((node) => node.classList.remove("active"));
+      document.querySelectorAll(".nav button").forEach((node) => node.classList.remove("active"));
+      $("page-" + page).classList.add("active");
+      document.querySelector('.nav button[data-page="' + page + '"]').classList.add("active");
+      $("pageTitle").textContent = pageTitles[page];
+    }
+
+    function setBar(id, value, max) {
+      const width = max > 0 ? Math.max(3, Math.min(100, Math.round(value / max * 100))) : 0;
+      $(id).style.width = width + "%";
+    }
+
+    function renderStatus(status) {
+      state.status = status;
+      const total = Number(status.events_total || 0);
+      const parsed = Number(status.events_parsed || 0);
+      const failed = Number(status.events_failed || 0);
+      const metrics = status.metrics || {};
+      const maxMetric = Math.max(
+        Number(metrics.tcp_received || 0),
+        Number(metrics.udp_received || 0),
+        Number(metrics.udp_dropped || 0),
+        Number(metrics.batches_stored || 0),
+        1
+      );
+
+      $("serviceName").textContent = text(status.service);
+      $("service").textContent = text(status.service);
+      $("authEnabled").textContent = status.auth_enabled ? "已开启" : "未开启";
+      $("eventsTotal").textContent = number(total);
+      $("eventsParsed").textContent = number(parsed);
+      $("eventsFailed").textContent = number(failed);
+      $("parseRate").textContent = total ? (parsed / total * 100).toFixed(2) + "%" : "0%";
+      $("duckdbBytes").textContent = bytes(status.duckdb_bytes);
+      $("parquetBytes").textContent = bytes(status.parquet_bytes);
+      $("frozenBytes").textContent = bytes(status.frozen_bytes);
+      $("archiveTotal").textContent = number((status.parquet_files || 0) + (status.frozen_files || 0)) + " 个文件";
+      $("parquetFiles").textContent = number(status.parquet_files || 0);
+      $("frozenFiles").textContent = number(status.frozen_files || 0);
+      $("duckdbPath").textContent = text(status.duckdb_path);
+      $("parquetDir").textContent = text(status.parquet_dir);
+      $("frozenDir").textContent = text(status.frozen_dir);
+      $("workerErrors").textContent = number(metrics.worker_errors || 0);
+      $("tcpReceived").textContent = number(metrics.tcp_received || 0);
+      $("udpReceived").textContent = number(metrics.udp_received || 0);
+      $("udpDropped").textContent = number(metrics.udp_dropped || 0);
+      $("batchesStored").textContent = number(metrics.batches_stored || 0);
+      $("spoolWritten").textContent = number(metrics.spool_written || 0);
+      $("eventsStored").textContent = number(metrics.events_stored || 0);
+      setBar("tcpBar", Number(metrics.tcp_received || 0), maxMetric);
+      setBar("udpBar", Number(metrics.udp_received || 0), maxMetric);
+      setBar("dropBar", Number(metrics.udp_dropped || 0), maxMetric);
+      setBar("batchBar", Number(metrics.batches_stored || 0), maxMetric);
+    }
+
+    function statusBadge(status) {
+      const span = document.createElement("span");
+      span.className = "badge " + (status === "parsed" ? "ok" : "fail");
+      span.textContent = status === "parsed" ? "parsed" : "failed";
+      return span;
+    }
+
+    function emptyRow(cols, label) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = cols;
+      cell.className = "empty";
+      cell.textContent = label;
+      row.appendChild(cell);
+      return row;
+    }
+
+    function cell(value, className) {
+      const td = document.createElement("td");
+      td.textContent = text(value);
+      if (className) td.className = className;
+      return td;
+    }
+
+    function renderEventRows(target, events, mode) {
+      const cols = mode === "full" ? 9 : 7;
+      const rows = events.length ? events.map((event) => {
+        const row = document.createElement("tr");
+        row.appendChild(cell(event.ingest_time || event.event_time, "mono"));
+        const status = document.createElement("td");
+        status.appendChild(statusBadge(event.parse_status));
+        row.appendChild(status);
+        row.appendChild(cell(event.src_ip, "mono"));
+        if (mode === "full") row.appendChild(cell(event.src_port, "mono"));
+        row.appendChild(cell(event.dst_ip, "mono"));
+        if (mode === "full") row.appendChild(cell(event.dst_port, "mono"));
+        row.appendChild(cell(event.protocol, "mono"));
+        row.appendChild(cell(event.action));
+        row.appendChild(cell(event.raw, "mono raw"));
+        return row;
+      }) : [emptyRow(cols, "暂无事件")];
+      $(target).replaceChildren(...rows);
+    }
+
+    function renderFiles(target, files) {
+      const items = files.length ? files.map((file) => {
+        const item = document.createElement("div");
+        item.className = "file";
+        const path = document.createElement("span");
+        const size = document.createElement("span");
+        path.className = "mono";
+        size.className = "muted";
+        path.textContent = text(file.path);
+        size.textContent = bytes(file.bytes);
+        item.append(path, size);
+        return item;
+      }) : [Object.assign(document.createElement("p"), { className: "empty", textContent: "暂无文件" })];
+      $(target).replaceChildren(...items);
+    }
+
     async function exportCsv() {
-      const response = await fetch("/api/events/export.csv?limit=200", {
+      const response = await fetch("/api/events/export.csv?limit=100000", {
         headers: authHeaders("text/csv")
       });
       if (!response.ok) throw new Error("CSV 导出返回 " + response.status);
@@ -334,121 +782,64 @@
 
     async function coldSearch() {
       const params = new URLSearchParams();
-      const day = $("coldDay").value.trim();
-      const src = $("coldSrcIp").value.trim();
-      const dst = $("coldDstIp").value.trim();
-      const keyword = $("coldKeyword").value.trim();
-      if (day) params.set("day", day);
-      if (src) params.set("src_ip", src);
-      if (dst) params.set("dst_ip", dst);
-      if (keyword) params.set("keyword", keyword);
-      params.set("limit", "200");
+      const fields = [
+        ["day", "coldDay"],
+        ["src_ip", "coldSrcIp"],
+        ["dst_ip", "coldDstIp"],
+        ["action", "coldAction"],
+        ["keyword", "coldKeyword"]
+      ];
+      for (const [name, id] of fields) {
+        const value = $(id).value.trim();
+        if (value) params.set(name, value);
+      }
+      params.set("limit", "500");
       $("coldStatus").textContent = "检索中...";
       const result = await getJson("/api/cold/search?" + params.toString());
-      renderEvents(Array.isArray(result.events) ? result.events : []);
-      $("coldStatus").textContent = "扫描 " + value(result.scanned_lines || 0) + " 行，命中 " + value(result.matched || 0) + " 条" + (result.limited ? "（已截断）" : "");
-    }
-
-    function setHealth(ok, text) {
-      $("healthDot").className = "dot " + (ok ? "ok" : "fail");
-      $("healthText").textContent = text;
-    }
-
-    function renderStatus(status) {
-      $("service").textContent = value(status.service);
-      $("authEnabled").textContent = status.auth_enabled ? "已开启" : "未开启";
-      $("eventsTotal").textContent = value(status.events_total || 0);
-      $("eventsParsed").textContent = value(status.events_parsed || 0);
-      $("eventsFailed").textContent = value(status.events_failed || 0);
-      $("tcpReceived").textContent = value(status.metrics && status.metrics.tcp_received || 0);
-      $("udpReceived").textContent = value(status.metrics && status.metrics.udp_received || 0);
-      $("udpDropped").textContent = value(status.metrics && status.metrics.udp_dropped || 0);
-      $("batchesStored").textContent = value(status.metrics && status.metrics.batches_stored || 0);
-      $("duckdbBytes").textContent = bytes(status.duckdb_bytes);
-      $("archiveTotal").textContent = value((status.parquet_files || 0) + (status.frozen_files || 0));
-      $("duckdbPath").textContent = value(status.duckdb_path);
-      $("parquetDir").textContent = value(status.parquet_dir);
-      $("frozenDir").textContent = value(status.frozen_dir);
-    }
-
-    function emptyRow(text, cols) {
-      const row = document.createElement("tr");
-      const cell = document.createElement("td");
-      cell.colSpan = cols;
-      cell.className = "muted";
-      cell.textContent = text;
-      row.appendChild(cell);
-      return row;
-    }
-
-    function renderEvents(events) {
-      const rows = events.length ? events.map((event) => {
-        const row = document.createElement("tr");
-        [
-          event.ingest_time || event.event_time,
-          event.parse_status,
-          event.src_ip || event.source_addr,
-          event.dst_ip,
-          event.action,
-          event.raw
-        ].forEach((field, index) => {
-          const cell = document.createElement("td");
-          cell.textContent = value(field);
-          if (index === 5) cell.className = "raw";
-          row.appendChild(cell);
-        });
-        return row;
-      }) : [emptyRow("暂无事件", 6)];
-      $("eventsBody").replaceChildren(...rows);
-    }
-
-    function renderFiles(id, files) {
-      const items = files.length ? files.map((file) => {
-        const item = document.createElement("div");
-        item.className = "file";
-        const path = document.createElement("span");
-        const size = document.createElement("span");
-        path.textContent = value(file.path);
-        size.textContent = bytes(file.bytes);
-        item.append(path, size);
-        return item;
-      }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "暂无文件" })];
-      $(id).replaceChildren(...items);
+      const events = Array.isArray(result.events) ? result.events : [];
+      renderEventRows("coldBody", events, "compact");
+      $("coldStatus").textContent = "完成";
+      $("coldSummary").textContent = "扫描 " + number(result.scanned_lines || 0) + " 行，命中 " + number(result.matched || 0) + " 条" + (result.limited ? "，已截断" : "");
     }
 
     async function refresh() {
-      $("error").style.display = "none";
+      clearError();
       try {
         const [health, status, events, archiveFiles, frozenFiles] = await Promise.all([
-          getJson(endpoints.health),
-          getJson(endpoints.status),
-          getJson(endpoints.events),
-          getJson(endpoints.archive),
-          getJson(endpoints.frozen)
+          getJson("/api/health"),
+          getJson("/api/system/status"),
+          getJson("/api/events?limit=200"),
+          getJson("/api/archive/files"),
+          getJson("/api/archive/frozen")
         ]);
         setHealth(health.status === "ok", health.status === "ok" ? "在线" : "异常");
+        const eventList = Array.isArray(events) ? events : [];
+        state.events = eventList;
         renderStatus(status);
-        renderEvents(Array.isArray(events) ? events : []);
+        renderEventRows("dashboardEvents", eventList.slice(0, 80), "compact");
+        renderEventRows("eventsBody", eventList, "full");
         renderFiles("archiveFiles", Array.isArray(archiveFiles) ? archiveFiles : []);
-        renderFiles("frozenFiles", Array.isArray(frozenFiles) ? frozenFiles : []);
-        $("updated").textContent = "刷新 " + new Date().toLocaleTimeString("zh-CN");
+        renderFiles("frozenFileList", Array.isArray(frozenFiles) ? frozenFiles : []);
+        $("updated").textContent = "刷新 " + new Date().toLocaleString("zh-CN", { hour12: false });
       } catch (error) {
         setHealth(false, "离线");
-        $("error").textContent = "接口请求失败：" + error.message;
-        $("error").style.display = "block";
+        showError(error);
       }
     }
 
-    $("exportCsv").addEventListener("click", () => exportCsv().catch((error) => {
-      $("error").textContent = "CSV 导出失败：" + error.message;
-      $("error").style.display = "block";
-    }));
+    document.querySelectorAll(".nav button").forEach((button) => {
+      button.addEventListener("click", () => switchPage(button.dataset.page));
+    });
+    document.querySelectorAll("[data-page-target]").forEach((button) => {
+      button.addEventListener("click", () => switchPage(button.dataset.pageTarget));
+    });
     $("refresh").addEventListener("click", refresh);
+    $("exportCsv").addEventListener("click", () => exportCsv().catch(showError));
     $("coldSearch").addEventListener("click", () => coldSearch().catch((error) => {
-      $("error").textContent = "历史追溯失败：" + error.message;
-      $("error").style.display = "block";
       $("coldStatus").textContent = "检索失败";
+      showError(error);
     }));
+
     refresh();
     setInterval(refresh, 30000);
   </script>
