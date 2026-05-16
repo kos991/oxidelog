@@ -7,19 +7,20 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #070d11;
-      --panel: #0d151a;
-      --panel-2: #111d24;
-      --panel-3: #16242c;
-      --line: #263842;
-      --line-soft: #1c2b33;
-      --text: #dce7ec;
-      --muted: #8fa2ad;
-      --accent: #2dd4bf;
-      --blue: #60a5fa;
-      --good: #4ade80;
-      --warn: #fbbf24;
-      --bad: #fb7185;
+      --bg: #0a0f12;
+      --surface: #10171b;
+      --surface-2: #151f24;
+      --surface-3: #0c1317;
+      --line: #26343b;
+      --line-soft: #1d2a30;
+      --text: #e1e8ec;
+      --muted: #8ea0aa;
+      --accent: #22c7a9;
+      --cyan: #6bd3ff;
+      --green: #54d681;
+      --amber: #f1b84b;
+      --red: #ff6b7d;
+      --violet: #a78bfa;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -29,63 +30,63 @@
       overflow: hidden;
       background: var(--bg);
       color: var(--text);
-      font: 13px/1.45 "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+      font: 13px/1.42 "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
       letter-spacing: 0;
     }
-    button, input, select {
-      font: inherit;
-      letter-spacing: 0;
-    }
+    button, input, select { font: inherit; letter-spacing: 0; }
     button {
+      min-height: 32px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: var(--panel-3);
+      background: var(--surface-2);
       color: var(--text);
-      padding: 7px 10px;
+      padding: 6px 10px;
       cursor: pointer;
       white-space: nowrap;
     }
-    button:hover { border-color: var(--accent); }
+    button:hover { border-color: var(--accent); color: #f8ffff; }
+    button.primary { background: #0f3d36; border-color: #1c7567; color: #ccfff4; }
     input, select {
       width: 100%;
+      min-height: 32px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: #081116;
+      background: #081014;
       color: var(--text);
-      padding: 7px 9px;
+      padding: 6px 9px;
       outline: none;
     }
     input:focus, select:focus { border-color: var(--accent); }
     h1, h2, h3, p { margin: 0; }
-    h1 { font-size: 18px; font-weight: 700; }
-    h2 { font-size: 14px; font-weight: 700; }
-    h3 { font-size: 13px; font-weight: 700; }
+    h1 { font-size: 18px; line-height: 1.2; }
+    h2 { font-size: 14px; }
+    h3 { font-size: 13px; }
     .app {
-      display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
       height: 100%;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
     }
     .sidebar {
       min-width: 0;
       border-right: 1px solid var(--line);
-      background: #0b1318;
+      background: #0d1418;
       display: flex;
       flex-direction: column;
     }
     .brand {
-      height: 64px;
-      padding: 14px 16px;
+      height: 58px;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       gap: 10px;
     }
     .logo {
-      width: 34px;
-      height: 34px;
-      border: 1px solid #1f766e;
-      border-radius: 6px;
-      background: #0f3e3b;
+      width: 32px;
+      height: 32px;
+      border: 1px solid #237465;
+      border-radius: 5px;
+      background: #102f2b;
       display: grid;
       place-items: center;
       color: var(--accent);
@@ -94,13 +95,14 @@
     .brand small, .muted { color: var(--muted); }
     .nav {
       display: grid;
-      gap: 4px;
-      padding: 12px;
+      gap: 3px;
+      padding: 10px;
     }
     .nav button {
       width: 100%;
+      min-height: 36px;
       display: grid;
-      grid-template-columns: 22px minmax(0, 1fr);
+      grid-template-columns: 24px minmax(0, 1fr);
       align-items: center;
       gap: 8px;
       border-color: transparent;
@@ -110,13 +112,29 @@
     }
     .nav button.active {
       border-color: var(--line);
-      background: var(--panel-2);
+      background: var(--surface-2);
       color: var(--accent);
     }
     .nav-icon { text-align: center; font-size: 15px; }
+    .side-block {
+      margin: 0 10px 10px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface-3);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .side-kv {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 6px 8px;
+    }
+    .side-kv span:nth-child(odd) { color: var(--muted); }
+    .side-kv span:nth-child(even) { overflow-wrap: anywhere; }
     .sidebar-footer {
       margin-top: auto;
-      padding: 12px;
+      padding: 10px;
       border-top: 1px solid var(--line);
       display: grid;
       gap: 8px;
@@ -126,31 +144,32 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 9px;
+      padding: 8px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: #081116;
+      background: #081014;
     }
     .dot {
       display: inline-block;
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--warn);
+      background: var(--amber);
+      margin-right: 6px;
     }
-    .dot.ok { background: var(--good); }
-    .dot.fail { background: var(--bad); }
+    .dot.ok { background: var(--green); }
+    .dot.fail { background: var(--red); }
     .main {
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: 64px minmax(0, 1fr);
+      grid-template-rows: 58px minmax(0, 1fr);
     }
     .topbar {
       min-width: 0;
-      padding: 12px 16px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--line);
-      background: #0d151a;
+      background: var(--surface);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -168,50 +187,48 @@
       gap: 8px;
       flex-wrap: wrap;
     }
-    .toolbar input { width: 180px; }
+    .toolbar input { width: 190px; }
     .content {
       min-width: 0;
       min-height: 0;
       overflow: auto;
-      padding: 12px;
+      padding: 10px;
     }
     .page { display: none; }
     .page.active { display: block; }
-    .grid {
-      display: grid;
-      gap: 12px;
-    }
+    .grid { display: grid; gap: 10px; }
     .dashboard-grid {
-      grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+      grid-template-columns: minmax(320px, 410px) minmax(0, 1fr);
       align-items: start;
     }
-    .metrics {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .split-grid {
+      grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.25fr);
+      align-items: start;
     }
-    .wide-metrics {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wide-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .panel {
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: 6px;
-      background: var(--panel);
-      padding: 12px;
+      background: var(--surface);
+      padding: 10px;
     }
     .panel-head {
+      min-height: 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap: 10px;
+      margin-bottom: 8px;
     }
     .metric {
       min-width: 0;
-      min-height: 64px;
+      min-height: 62px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #091217;
-      padding: 9px;
+      background: #0b1216;
+      padding: 8px;
     }
     .metric span {
       color: var(--muted);
@@ -221,16 +238,19 @@
       display: block;
       margin-top: 4px;
       color: var(--accent);
-      font-size: 20px;
+      font-size: 19px;
       line-height: 1.15;
       overflow-wrap: anywhere;
     }
-    .metric .bad { color: var(--bad); }
-    .metric .good { color: var(--good); }
-    .metric .blue { color: var(--blue); }
+    .metric strong.small { font-size: 15px; }
+    .good { color: var(--green) !important; }
+    .bad { color: var(--red) !important; }
+    .warn { color: var(--amber) !important; }
+    .blue { color: var(--cyan) !important; }
+    .violet { color: var(--violet) !important; }
     dl {
       display: grid;
-      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-columns: 86px minmax(0, 1fr);
       gap: 7px 10px;
       margin: 0;
     }
@@ -240,25 +260,23 @@
       min-width: 0;
       overflow-wrap: anywhere;
     }
-    .status-list {
-      display: grid;
-      gap: 8px;
-    }
+    .status-list { display: grid; gap: 7px; }
     .status-row {
       display: grid;
-      grid-template-columns: 110px minmax(0, 1fr) auto;
-      gap: 10px;
+      grid-template-columns: 92px minmax(0, 1fr) 82px;
+      gap: 9px;
       align-items: center;
-      padding: 8px;
+      padding: 7px 8px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #091217;
+      background: #0b1216;
     }
+    .status-row b { text-align: right; overflow-wrap: anywhere; }
     .bar {
       height: 6px;
       border-radius: 999px;
       overflow: hidden;
-      background: #1b2a32;
+      background: #1b292f;
     }
     .bar i {
       display: block;
@@ -266,13 +284,29 @@
       width: 0;
       background: var(--accent);
     }
+    .bar.warn i { background: var(--amber); }
+    .bar.bad i { background: var(--red); }
+    .table-tools {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 8px;
+    }
+    .table-tools label, .search-form label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
     .table-wrap {
-      max-height: calc(100vh - 166px);
+      max-height: calc(100vh - 160px);
       overflow: auto;
       border: 1px solid var(--line);
       border-radius: 4px;
     }
-    .table-wrap.tall { max-height: calc(100vh - 122px); }
+    .table-wrap.compact { max-height: calc(100vh - 128px); }
+    .table-wrap.mid { max-height: calc(100vh - 224px); }
     table {
       width: 100%;
       min-width: 1080px;
@@ -288,25 +322,28 @@
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #101a20;
-      color: var(--muted);
+      background: #111b20;
+      color: #a6b7c0;
       font-weight: 650;
     }
+    tbody tr:hover { background: #111d22; }
     td {
-      max-width: 420px;
+      max-width: 430px;
       overflow-wrap: anywhere;
     }
     .mono {
       font-family: Consolas, "Courier New", monospace;
       font-size: 12px;
     }
-    .raw { color: #c8d4da; }
+    .raw {
+      color: #ced9de;
+      line-height: 1.45;
+    }
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      min-width: 58px;
       justify-content: center;
+      min-width: 64px;
       border-radius: 3px;
       padding: 2px 7px;
       border: 1px solid var(--line);
@@ -315,17 +352,17 @@
       font-size: 12px;
     }
     .badge.ok {
-      border-color: #1d6b44;
+      border-color: #217049;
       background: #0c2619;
-      color: var(--good);
+      color: var(--green);
     }
     .badge.fail {
-      border-color: #7a2838;
+      border-color: #833040;
       background: #2a1118;
-      color: var(--bad);
+      color: var(--red);
     }
     .files {
-      max-height: 246px;
+      max-height: 252px;
       overflow: auto;
       display: grid;
       gap: 6px;
@@ -337,44 +374,31 @@
       padding: 7px 8px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #091217;
+      background: #0b1216;
     }
+    .file span:first-child { overflow-wrap: anywhere; }
     .search-form {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
       gap: 8px;
       align-items: end;
     }
-    .search-form label {
-      display: grid;
-      gap: 4px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .terminal {
-      height: calc(100vh - 214px);
-      min-height: 360px;
-      overflow: auto;
-      border: 1px solid var(--line);
+    .notice {
+      border: 1px solid #38505a;
       border-radius: 4px;
-      background: #03080b;
-      padding: 10px;
-    }
-    .log-line {
-      display: grid;
-      grid-template-columns: 190px 80px minmax(0, 1fr);
-      gap: 10px;
-      padding: 3px 0;
-      border-bottom: 1px solid #0d171c;
+      background: #0b1418;
+      padding: 8px 10px;
+      color: #b9c8cf;
     }
     .error {
       display: none;
-      margin-bottom: 12px;
-      border: 1px solid #7a2838;
+      margin-bottom: 10px;
+      border: 1px solid #833040;
       border-radius: 4px;
       background: #2a1118;
       color: #ffd5db;
       padding: 9px;
+      white-space: pre-wrap;
     }
     .empty {
       color: var(--muted);
@@ -386,15 +410,15 @@
       .sidebar { position: static; }
       .nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .main { min-height: 0; }
-      .dashboard-grid, .wide-metrics, .search-form { grid-template-columns: 1fr 1fr; }
+      .dashboard-grid, .split-grid, .wide-metrics, .table-tools, .search-form { grid-template-columns: 1fr 1fr; }
       .toolbar { justify-content: flex-start; }
     }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; flex-direction: column; }
       .nav { grid-template-columns: 1fr 1fr; }
-      .dashboard-grid, .metrics, .wide-metrics, .search-form { grid-template-columns: 1fr; }
+      .dashboard-grid, .split-grid, .metrics, .wide-metrics, .table-tools, .search-form { grid-template-columns: 1fr; }
       .toolbar input { width: 100%; }
-      .log-line { grid-template-columns: 1fr; gap: 2px; }
+      table { min-width: 920px; }
     }
   </style>
 </head>
@@ -405,19 +429,36 @@
         <div class="logo">OL</div>
         <div>
           <h1>OxideLog</h1>
-          <small>NAT 日志安全运营中心</small>
+          <small>安全运营中心</small>
         </div>
       </div>
       <nav class="nav" aria-label="主导航">
-        <button class="active" data-page="dashboard"><span class="nav-icon">▦</span><span>态势总览</span></button>
-        <button data-page="events"><span class="nav-icon">≡</span><span>日志检索</span></button>
-        <button data-page="cold"><span class="nav-icon">◎</span><span>历史追溯</span></button>
-        <button data-page="ops"><span class="nav-icon">⚙</span><span>运行维护</span></button>
+        <button class="active" data-page="dashboard" title="态势总览"><span class="nav-icon">▦</span><span>态势总览</span></button>
+        <button data-page="events" title="日志检索"><span class="nav-icon">≡</span><span>日志检索</span></button>
+        <button data-page="cold" title="历史追溯"><span class="nav-icon">◎</span><span>历史追溯</span></button>
+        <button data-page="ops" title="运行维护"><span class="nav-icon">⚙</span><span>运行维护</span></button>
       </nav>
+      <div class="side-block">
+        <h2>核心指标</h2>
+        <div class="side-kv">
+          <span>总事件</span><span id="sideTotal">0</span>
+          <span>成功率</span><span id="sideRate">0%</span>
+          <span>热库</span><span id="sideDuckdb">0 B</span>
+          <span>冰冻库</span><span id="sideFrozen">0 B</span>
+        </div>
+      </div>
+      <div class="side-block">
+        <h2>部署路径</h2>
+        <div class="side-kv">
+          <span>服务</span><span id="serviceName">fwlogd</span>
+          <span>DuckDB</span><span id="sideDuckdbPath">-</span>
+          <span>Frozen</span><span id="sideFrozenDir">-</span>
+        </div>
+      </div>
       <div class="sidebar-footer">
         <div class="health">
-          <span><i id="healthDot" class="dot"></i> <b id="healthText">连接中</b></span>
-          <span id="serviceName" class="muted">fwlogd</span>
+          <span><i id="healthDot" class="dot"></i><b id="healthText">连接中</b></span>
+          <span id="authState" class="muted">认证检测</span>
         </div>
         <input id="apiToken" type="password" autocomplete="off" placeholder="API Token">
       </div>
@@ -430,8 +471,9 @@
           <span id="updated" class="muted">尚未刷新</span>
         </div>
         <div class="toolbar">
+          <input id="quickFilter" type="search" placeholder="本页快速过滤 IP / 端口 / NAT">
           <button id="exportCsv" type="button">导出 CSV</button>
-          <button id="refresh" type="button">刷新</button>
+          <button id="refresh" class="primary" type="button">刷新</button>
         </div>
       </header>
 
@@ -451,7 +493,7 @@
                 </div>
               </div>
               <div class="panel">
-                <div class="panel-head"><h2>存储资产</h2><span id="archiveTotal" class="muted">0 个文件</span></div>
+                <div class="panel-head"><h2>存储水位</h2><span id="archiveTotal" class="muted">0 个文件</span></div>
                 <div class="grid metrics">
                   <div class="metric"><span>DuckDB 热库</span><strong id="duckdbBytes">0 B</strong></div>
                   <div class="metric"><span>Parquet 冷库</span><strong id="parquetBytes">0 B</strong></div>
@@ -460,17 +502,20 @@
                 </div>
               </div>
               <div class="panel">
-                <div class="panel-head"><h2>接入与背压</h2><span class="muted">当前进程计数</span></div>
+                <div class="panel-head"><h2>接入与背压</h2><span class="muted">进程内计数</span></div>
                 <div class="status-list">
-                  <div class="status-row"><span>TCP 接收</span><div class="bar"><i id="tcpBar"></i></div><b id="tcpReceived">0</b></div>
-                  <div class="status-row"><span>UDP 接收</span><div class="bar"><i id="udpBar"></i></div><b id="udpReceived">0</b></div>
-                  <div class="status-row"><span>UDP 丢弃</span><div class="bar"><i id="dropBar"></i></div><b id="udpDropped">0</b></div>
-                  <div class="status-row"><span>落库批次</span><div class="bar"><i id="batchBar"></i></div><b id="batchesStored">0</b></div>
+                  <div class="status-row"><span>TCP 收入</span><div class="bar"><i id="tcpBar"></i></div><b id="tcpReceived">0</b></div>
+                  <div class="status-row"><span>UDP 收入</span><div class="bar"><i id="udpBar"></i></div><b id="udpReceived">0</b></div>
+                  <div class="status-row"><span>UDP 丢弃</span><div class="bar bad"><i id="dropBar"></i></div><b id="udpDropped">0</b></div>
+                  <div class="status-row"><span>落库批次</span><div class="bar warn"><i id="batchBar"></i></div><b id="batchesStored">0</b></div>
                 </div>
               </div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h2>最近事件</h2><button data-page-target="events" type="button">打开检索</button></div>
+              <div class="panel-head">
+                <h2>最近事件</h2>
+                <button data-page-target="events" type="button">打开检索</button>
+              </div>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -495,9 +540,18 @@
           <div class="panel">
             <div class="panel-head">
               <h2>热库日志检索</h2>
-              <span class="muted">最近 200 条，来自 DuckDB 热库</span>
+              <span id="eventSummary" class="muted">最近 200 条，来自 DuckDB 热库</span>
             </div>
-            <div class="table-wrap tall">
+            <div class="table-tools">
+              <label>源 IP<input id="filterSrc" type="text" placeholder="2.55.80.6"></label>
+              <label>目的 IP<input id="filterDst" type="text" placeholder="211.93.49.88"></label>
+              <label>协议<input id="filterProtocol" type="text" placeholder="UDP"></label>
+              <label>动作<input id="filterAction" type="text" placeholder="snat"></label>
+              <label>状态<select id="filterStatus"><option value="">全部</option><option value="parsed">parsed</option><option value="failed">failed</option></select></label>
+              <label>关键字<input id="filterKeyword" type="text" placeholder="NAT类型 / 端口"></label>
+              <button id="clearFilters" type="button">清空</button>
+            </div>
+            <div class="table-wrap compact">
               <table>
                 <thead>
                   <tr>
@@ -531,12 +585,13 @@
                 <label>目的 IP<input id="coldDstIp" type="text" placeholder="211.93.49.88"></label>
                 <label>动作<input id="coldAction" type="text" placeholder="snat"></label>
                 <label>关键字<input id="coldKeyword" type="text" placeholder="NAT类型"></label>
-                <button id="coldSearch" type="button">开始追溯</button>
+                <label>包含失败<select id="coldIncludeFailed"><option value="">否</option><option value="1">是</option></select></label>
+                <button id="coldSearch" class="primary" type="button">开始追溯</button>
               </div>
             </div>
             <div class="panel">
               <div class="panel-head"><h2>追溯结果</h2><span id="coldSummary" class="muted">等待查询</span></div>
-              <div class="table-wrap tall">
+              <div class="table-wrap compact">
                 <table>
                   <thead>
                     <tr>
@@ -557,7 +612,7 @@
         </section>
 
         <section id="page-ops" class="page">
-          <div class="grid dashboard-grid">
+          <div class="grid split-grid">
             <div class="grid">
               <div class="panel">
                 <div class="panel-head"><h2>运行信息</h2><span class="muted">本机部署</span></div>
@@ -572,12 +627,15 @@
                 </dl>
               </div>
               <div class="panel">
-                <div class="panel-head"><h2>归档资产</h2><span class="muted">只展示物理文件</span></div>
+                <div class="panel-head"><h2>归档资产</h2><span class="muted">物理文件清单</span></div>
                 <div class="grid metrics">
                   <div class="metric"><span>Parquet 文件</span><strong id="parquetFiles">0</strong></div>
                   <div class="metric"><span>Frozen 文件</span><strong id="frozenFiles">0</strong></div>
+                  <div class="metric"><span>Parquet 容量</span><strong id="opsParquetBytes">0 B</strong></div>
+                  <div class="metric"><span>Frozen 容量</span><strong id="opsFrozenBytes">0 B</strong></div>
                 </div>
               </div>
+              <div class="notice">冷库默认只保留极小 Parquet 索引；历史全文追溯走 Frozen 流式扫描，不把 .tar.zst 解压到磁盘。</div>
             </div>
             <div class="grid">
               <div class="panel">
@@ -597,7 +655,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const state = { status: null, events: [] };
+    const state = { status: null, events: [], visibleEvents: [] };
     const pageTitles = {
       dashboard: "态势总览",
       events: "日志检索",
@@ -656,6 +714,7 @@
       $("page-" + page).classList.add("active");
       document.querySelector('.nav button[data-page="' + page + '"]').classList.add("active");
       $("pageTitle").textContent = pageTitles[page];
+      applyFilters();
     }
 
     function setBar(id, value, max) {
@@ -668,6 +727,7 @@
       const total = Number(status.events_total || 0);
       const parsed = Number(status.events_parsed || 0);
       const failed = Number(status.events_failed || 0);
+      const rate = total ? (parsed / total * 100).toFixed(2) + "%" : "0%";
       const metrics = status.metrics || {};
       const maxMetric = Math.max(
         Number(metrics.tcp_received || 0),
@@ -680,19 +740,28 @@
       $("serviceName").textContent = text(status.service);
       $("service").textContent = text(status.service);
       $("authEnabled").textContent = status.auth_enabled ? "已开启" : "未开启";
+      $("authState").textContent = status.auth_enabled ? "需要 Token" : "免认证";
       $("eventsTotal").textContent = number(total);
       $("eventsParsed").textContent = number(parsed);
       $("eventsFailed").textContent = number(failed);
-      $("parseRate").textContent = total ? (parsed / total * 100).toFixed(2) + "%" : "0%";
+      $("parseRate").textContent = rate;
+      $("sideTotal").textContent = number(total);
+      $("sideRate").textContent = rate;
       $("duckdbBytes").textContent = bytes(status.duckdb_bytes);
       $("parquetBytes").textContent = bytes(status.parquet_bytes);
       $("frozenBytes").textContent = bytes(status.frozen_bytes);
+      $("sideDuckdb").textContent = bytes(status.duckdb_bytes);
+      $("sideFrozen").textContent = bytes(status.frozen_bytes);
+      $("opsParquetBytes").textContent = bytes(status.parquet_bytes);
+      $("opsFrozenBytes").textContent = bytes(status.frozen_bytes);
       $("archiveTotal").textContent = number((status.parquet_files || 0) + (status.frozen_files || 0)) + " 个文件";
       $("parquetFiles").textContent = number(status.parquet_files || 0);
       $("frozenFiles").textContent = number(status.frozen_files || 0);
       $("duckdbPath").textContent = text(status.duckdb_path);
       $("parquetDir").textContent = text(status.parquet_dir);
       $("frozenDir").textContent = text(status.frozen_dir);
+      $("sideDuckdbPath").textContent = text(status.duckdb_path);
+      $("sideFrozenDir").textContent = text(status.frozen_dir);
       $("workerErrors").textContent = number(metrics.worker_errors || 0);
       $("tcpReceived").textContent = number(metrics.tcp_received || 0);
       $("udpReceived").textContent = number(metrics.udp_received || 0);
@@ -728,6 +797,40 @@
       td.textContent = text(value);
       if (className) td.className = className;
       return td;
+    }
+
+    function eventHaystack(event) {
+      return [
+        event.ingest_time,
+        event.event_time,
+        event.parse_status,
+        event.src_ip,
+        event.src_port,
+        event.dst_ip,
+        event.dst_port,
+        event.protocol,
+        event.action,
+        event.raw
+      ].map((value) => text(value, "")).join(" ").toLowerCase();
+    }
+
+    function matchesEventFilters(event) {
+      const quick = $("quickFilter").value.trim().toLowerCase();
+      const src = $("filterSrc").value.trim();
+      const dst = $("filterDst").value.trim();
+      const protocol = $("filterProtocol").value.trim().toLowerCase();
+      const action = $("filterAction").value.trim().toLowerCase();
+      const status = $("filterStatus").value;
+      const keyword = $("filterKeyword").value.trim().toLowerCase();
+      const haystack = eventHaystack(event);
+      if (quick && !haystack.includes(quick)) return false;
+      if (src && text(event.src_ip, "").indexOf(src) === -1) return false;
+      if (dst && text(event.dst_ip, "").indexOf(dst) === -1) return false;
+      if (protocol && text(event.protocol, "").toLowerCase().indexOf(protocol) === -1) return false;
+      if (action && text(event.action, "").toLowerCase().indexOf(action) === -1) return false;
+      if (status && event.parse_status !== status) return false;
+      if (keyword && !haystack.includes(keyword)) return false;
+      return true;
     }
 
     function renderEventRows(target, events, mode) {
@@ -766,6 +869,14 @@
       $(target).replaceChildren(...items);
     }
 
+    function applyFilters() {
+      const visible = state.events.filter(matchesEventFilters);
+      state.visibleEvents = visible;
+      renderEventRows("dashboardEvents", visible.slice(0, 80), "compact");
+      renderEventRows("eventsBody", visible, "full");
+      $("eventSummary").textContent = "显示 " + number(visible.length) + " / " + number(state.events.length) + " 条，来自 DuckDB 热库";
+    }
+
     async function exportCsv() {
       const response = await fetch("/api/events/export.csv?limit=100000", {
         headers: authHeaders("text/csv")
@@ -793,13 +904,14 @@
         const value = $(id).value.trim();
         if (value) params.set(name, value);
       }
+      if ($("coldIncludeFailed").value) params.set("include_failed", "true");
       params.set("limit", "500");
       $("coldStatus").textContent = "检索中...";
       const result = await getJson("/api/cold/search?" + params.toString());
       const events = Array.isArray(result.events) ? result.events : [];
       renderEventRows("coldBody", events, "compact");
       $("coldStatus").textContent = "完成";
-      $("coldSummary").textContent = "扫描 " + number(result.scanned_lines || 0) + " 行，命中 " + number(result.matched || 0) + " 条" + (result.limited ? "，已截断" : "");
+      $("coldSummary").textContent = "文件 " + number(result.files || 0) + " 个，扫描 " + number(result.scanned_lines || 0) + " 行，命中 " + number(result.matched || 0) + " 条" + (result.limited ? "，已截断" : "");
     }
 
     async function refresh() {
@@ -813,13 +925,11 @@
           getJson("/api/archive/frozen")
         ]);
         setHealth(health.status === "ok", health.status === "ok" ? "在线" : "异常");
-        const eventList = Array.isArray(events) ? events : [];
-        state.events = eventList;
+        state.events = Array.isArray(events) ? events : [];
         renderStatus(status);
-        renderEventRows("dashboardEvents", eventList.slice(0, 80), "compact");
-        renderEventRows("eventsBody", eventList, "full");
         renderFiles("archiveFiles", Array.isArray(archiveFiles) ? archiveFiles : []);
         renderFiles("frozenFileList", Array.isArray(frozenFiles) ? frozenFiles : []);
+        applyFilters();
         $("updated").textContent = "刷新 " + new Date().toLocaleString("zh-CN", { hour12: false });
       } catch (error) {
         setHealth(false, "离线");
@@ -832,6 +942,15 @@
     });
     document.querySelectorAll("[data-page-target]").forEach((button) => {
       button.addEventListener("click", () => switchPage(button.dataset.pageTarget));
+    });
+    ["quickFilter", "filterSrc", "filterDst", "filterProtocol", "filterAction", "filterStatus", "filterKeyword"].forEach((id) => {
+      $(id).addEventListener("input", applyFilters);
+      $(id).addEventListener("change", applyFilters);
+    });
+    $("clearFilters").addEventListener("click", () => {
+      ["quickFilter", "filterSrc", "filterDst", "filterProtocol", "filterAction", "filterKeyword"].forEach((id) => { $(id).value = ""; });
+      $("filterStatus").value = "";
+      applyFilters();
     });
     $("refresh").addEventListener("click", refresh);
     $("exportCsv").addEventListener("click", () => exportCsv().catch(showError));
