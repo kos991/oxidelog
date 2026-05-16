@@ -32,12 +32,33 @@ struct Args {
     fast_hot_limit: Option<usize>,
     #[arg(long)]
     archive_parquet: Option<PathBuf>,
+    #[arg(long)]
+    archive_slim_parquet: Option<PathBuf>,
+    #[arg(long)]
+    slim_parquet_input: Option<PathBuf>,
+    #[arg(long)]
+    slim_parquet_output: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let started = Instant::now();
     let store = DuckDbStore::open(&args.duckdb)?;
+
+    if let (Some(input), Some(output)) = (
+        args.slim_parquet_input.as_ref(),
+        args.slim_parquet_output.as_ref(),
+    ) {
+        let archive = store.archive_slim_parquet_from_parquet(input, output)?;
+        eprintln!(
+            "OxideLog slim parquet finished input={} output={} bytes={} elapsed={:.1}s",
+            input.display(),
+            archive.path.display(),
+            archive.bytes,
+            started.elapsed().as_secs_f64()
+        );
+        return Ok(());
+    }
 
     if let Some(output) = args.compact_output {
         if let Some(parquet) = args.archive_parquet.as_ref() {
@@ -47,6 +68,14 @@ fn main() -> Result<()> {
                 "OxideLog parquet archive finished output={} rows={} bytes={}",
                 archive.path.display(),
                 stats.total,
+                archive.bytes
+            );
+        }
+        if let Some(parquet) = args.archive_slim_parquet.as_ref() {
+            let archive = store.archive_slim_parquet(parquet, None)?;
+            eprintln!(
+                "OxideLog slim parquet archive finished output={} bytes={}",
+                archive.path.display(),
                 archive.bytes
             );
         }

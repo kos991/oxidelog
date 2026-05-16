@@ -291,6 +291,100 @@ impl DuckDbStore {
         })
     }
 
+    pub fn archive_slim_parquet(
+        &self,
+        output_path: impl AsRef<Path>,
+        limit: Option<usize>,
+    ) -> Result<ArchiveFile> {
+        let output_path = output_path.as_ref();
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).context("create slim archive directory")?;
+        }
+
+        let sql_path = output_path.to_string_lossy().replace('\'', "''");
+        let limit_clause = limit
+            .map(|value| format!("LIMIT {}", value))
+            .unwrap_or_default();
+        let sql = format!(
+            r#"
+            COPY (
+              SELECT
+                ingest_time,
+                event_time,
+                vendor,
+                product,
+                src_ip,
+                src_port,
+                dst_ip,
+                dst_port,
+                protocol,
+                action,
+                severity,
+                parse_status
+              FROM events
+              {}
+            ) TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)
+            "#,
+            limit_clause, sql_path
+        );
+        self.conn
+            .execute_batch(&sql)
+            .with_context(|| format!("archive slim events to parquet {}", output_path.display()))?;
+        let bytes = fs::metadata(output_path)
+            .with_context(|| format!("read slim archive metadata {}", output_path.display()))?
+            .len();
+        Ok(ArchiveFile {
+            path: output_path.to_path_buf(),
+            bytes,
+        })
+    }
+
+    pub fn archive_slim_parquet_from_parquet(
+        &self,
+        input_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+    ) -> Result<ArchiveFile> {
+        let input_path = input_path.as_ref();
+        let output_path = output_path.as_ref();
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).context("create slim archive directory")?;
+        }
+
+        let input_sql_path = input_path.to_string_lossy().replace('\'', "''");
+        let output_sql_path = output_path.to_string_lossy().replace('\'', "''");
+        let sql = format!(
+            r#"
+            COPY (
+              SELECT
+                ingest_time,
+                event_time,
+                vendor,
+                product,
+                src_ip,
+                src_port,
+                dst_ip,
+                dst_port,
+                protocol,
+                action,
+                severity,
+                parse_status
+              FROM read_parquet('{}')
+            ) TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)
+            "#,
+            input_sql_path, output_sql_path
+        );
+        self.conn
+            .execute_batch(&sql)
+            .with_context(|| format!("write slim parquet {}", output_path.display()))?;
+        let bytes = fs::metadata(output_path)
+            .with_context(|| format!("read slim archive metadata {}", output_path.display()))?
+            .len();
+        Ok(ArchiveFile {
+            path: output_path.to_path_buf(),
+            bytes,
+        })
+    }
+
     pub fn archive_events_parquet(
         &self,
         output_path: impl AsRef<Path>,
@@ -626,5 +720,36 @@ mod tests {
         let rows = compact.query_recent(10).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|row| row.raw.is_empty()));
+    }
+
+    #[test]
+    fn archives_slim_parquet_without_raw_event_id_or_parse_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_path = dir.path().join("archives").join("slim.parquet");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        store
+            .insert_batch(&[event("one", ParseStatus::Parsed), event("two", ParseStatus::Failed)])
+            .unwrap();
+
+        let archive = store.archive_slim_parquet(&parquet_path, None).unwrap();
+        assert!(archive.bytes > 0);
+
+        let conn = Connection::open_in_memory().unwrap();
+        let columns: String = conn
+            .query_row(
+                &format!(
+                    "SELECT string_agg(column_name, ',') FROM (DESCRIBE SELECT * FROM read_parquet('{}'))",
+                    parquet_path.to_string_lossy().replace('\'', "''")
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(columns.contains("src_ip"));
+        assert!(!columns.contains("raw"));
+        assert!(!columns.contains("event_id"));
+        assert!(!columns.contains("parse_error"));
     }
 }

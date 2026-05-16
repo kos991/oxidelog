@@ -50,7 +50,7 @@ import_args=(
   --drop-parsed-raw
 )
 if [ "$SKIP_PARQUET" != true ]; then
-  import_args+=(--archive-parquet "$PARQUET")
+  import_args+=(--archive-slim-parquet "$PARQUET")
 fi
 
 "$IMPORT_BIN" "${import_args[@]}"
