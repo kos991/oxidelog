@@ -546,6 +546,7 @@
                       <tr>
                         <th>接收时间</th>
                         <th>状态</th>
+                        <th>设备来源</th>
                         <th>源地址</th>
                         <th>目的地址</th>
                         <th>协议</th>
@@ -553,7 +554,7 @@
                         <th>原始日志</th>
                       </tr>
                     </thead>
-                    <tbody id="dashboardEvents"><tr><td colspan="7" class="empty">加载中</td></tr></tbody>
+                    <tbody id="dashboardEvents"><tr><td colspan="8" class="empty">加载中</td></tr></tbody>
                   </table>
                 </div>
               </div>
@@ -578,6 +579,7 @@
                   <tr>
                     <th>接收时间</th>
                     <th>状态</th>
+                    <th>设备来源</th>
                     <th>源 IP</th>
                     <th>源端口</th>
                     <th>目的 IP</th>
@@ -587,7 +589,7 @@
                     <th>原始日志</th>
                   </tr>
                 </thead>
-                <tbody id="eventsBody"><tr><td colspan="9" class="empty">加载中</td></tr></tbody>
+                <tbody id="eventsBody"><tr><td colspan="10" class="empty">加载中</td></tr></tbody>
               </table>
             </div>
           </section>
@@ -617,6 +619,7 @@
                       <tr>
                         <th>接收时间</th>
                         <th>状态</th>
+                        <th>设备来源</th>
                         <th>源地址</th>
                         <th>目的地址</th>
                         <th>协议</th>
@@ -624,7 +627,7 @@
                         <th>原始日志</th>
                       </tr>
                     </thead>
-                    <tbody id="coldBody"><tr><td colspan="7" class="empty">暂无结果</td></tr></tbody>
+                    <tbody id="coldBody"><tr><td colspan="8" class="empty">暂无结果</td></tr></tbody>
                   </table>
                 </div>
               </div>
@@ -832,6 +835,7 @@
       return [
         event.ingest_time,
         event.event_time,
+        event.source_addr,
         event.parse_status,
         event.src_ip,
         event.src_port,
@@ -863,13 +867,14 @@
     }
 
     function renderEventRows(target, events, mode) {
-      const cols = mode === "full" ? 9 : 7;
+      const cols = mode === "full" ? 10 : 8;
       const rows = events.length ? events.map((event) => {
         const row = document.createElement("tr");
         row.appendChild(cell(event.ingest_time || event.event_time, "mono"));
         const status = document.createElement("td");
         status.appendChild(statusBadge(event.parse_status));
         row.appendChild(status);
+        row.appendChild(cell(event.source_addr, "mono"));
         row.appendChild(cell(event.src_ip, "mono"));
         if (mode === "full") row.appendChild(cell(event.src_port, "mono"));
         row.appendChild(cell(event.dst_ip, "mono"));

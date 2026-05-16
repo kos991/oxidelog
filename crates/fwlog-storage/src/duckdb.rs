@@ -30,6 +30,27 @@ impl DuckDbStore {
 
     fn init(&self) -> Result<()> {
         self.conn.execute_batch(&create_events_table_sql("events", true))?;
+        self.migrate_events_schema()?;
+        Ok(())
+    }
+
+    fn migrate_events_schema(&self) -> Result<()> {
+        let has_source_addr: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('events') WHERE name = 'source_addr'",
+                [],
+                |row| row.get(0),
+            )
+            .context("inspect events schema")?;
+        if !has_source_addr {
+            self.conn.execute_batch(
+                r#"
+                ALTER TABLE events ADD COLUMN source_addr TEXT;
+                UPDATE events SET source_addr = 'unknown://legacy' WHERE source_addr IS NULL OR source_addr = '';
+                "#,
+            )?;
+        }
         Ok(())
     }
 
@@ -40,16 +61,17 @@ impl DuckDbStore {
             let mut stmt = tx.prepare(
                 r#"
                 INSERT OR IGNORE INTO events (
-                  event_id, ingest_time, event_time, vendor, product,
+                  event_id, ingest_time, source_addr, event_time, vendor, product,
                   src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
                   raw, parse_status, parse_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )?;
             for event in events {
                 inserted += stmt.execute(params![
                     event.event_id.as_str(),
                     event.ingest_time.to_rfc3339(),
+                    event.source_addr.as_str(),
                     event.event_time.as_ref().map(|v| v.to_rfc3339()),
                     event.vendor.as_deref(),
                     event.product.as_deref(),
@@ -93,13 +115,19 @@ impl DuckDbStore {
             return Ok(0);
         }
 
-        self.conn.execute_batch("CREATE TEMP TABLE IF NOT EXISTS import_events AS SELECT * FROM events LIMIT 0;")?;
+        self.conn.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS import_events;
+            CREATE TEMP TABLE import_events AS SELECT * FROM events LIMIT 0;
+            "#,
+        )?;
         {
             let mut app = self.conn.appender("import_events").context("create appender")?;
             for event in events {
                 app.append_row(params![
                     event.event_id.as_str(),
                     event.ingest_time.to_rfc3339(),
+                    event.source_addr.as_str(),
                     event.event_time.as_ref().map(|v| v.to_rfc3339()),
                     event.vendor.as_deref(),
                     event.product.as_deref(),
@@ -156,6 +184,7 @@ impl DuckDbStore {
                 app.append_row(params![
                     event.event_id.as_str(),
                     event.ingest_time.to_rfc3339(),
+                    event.source_addr.as_str(),
                     event.event_time.as_ref().map(|v| v.to_rfc3339()),
                     event.vendor.as_deref(),
                     event.product.as_deref(),
@@ -263,12 +292,12 @@ impl DuckDbStore {
             ATTACH '{}' AS compact;
             {}
             INSERT INTO compact.events (
-              event_id, ingest_time, event_time, vendor, product,
+              event_id, ingest_time, source_addr, event_time, vendor, product,
               src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
               raw, parse_status, parse_error
             )
             SELECT
-              event_id, ingest_time, event_time, vendor, product,
+              event_id, ingest_time, source_addr, event_time, vendor, product,
               src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
               {}, parse_status, parse_error
             FROM events
@@ -294,7 +323,7 @@ impl DuckDbStore {
     pub fn query_recent(&self, limit: usize) -> Result<Vec<CanonicalEvent>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT event_id, ingest_time, event_time, vendor, product,
+            SELECT event_id, ingest_time, source_addr, event_time, vendor, product,
                    src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
                    raw, parse_status, parse_error
             FROM events
@@ -386,6 +415,7 @@ impl DuckDbStore {
             COPY (
               SELECT
                 ingest_time,
+                source_addr,
                 event_time,
                 vendor,
                 product,
@@ -433,6 +463,7 @@ impl DuckDbStore {
             COPY (
               SELECT
                 ingest_time,
+                COALESCE(source_addr, '') AS source_addr,
                 event_time,
                 vendor,
                 product,
@@ -482,6 +513,7 @@ impl DuckDbStore {
             CREATE TEMP TABLE archive_events (
               event_id TEXT,
               ingest_time TEXT NOT NULL,
+              source_addr TEXT NOT NULL,
               event_time TEXT,
               vendor TEXT,
               product TEXT,
@@ -502,16 +534,17 @@ impl DuckDbStore {
             let mut stmt = tx.prepare(
                 r#"
                 INSERT INTO archive_events (
-                  event_id, ingest_time, event_time, vendor, product,
+                  event_id, ingest_time, source_addr, event_time, vendor, product,
                   src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
                   raw, parse_status, parse_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )?;
             for event in events {
                 stmt.execute(params![
                     event.event_id.as_str(),
                     event.ingest_time.to_rfc3339(),
+                    event.source_addr.as_str(),
                     event.event_time.as_ref().map(|v| v.to_rfc3339()),
                     event.vendor.as_deref(),
                     event.product.as_deref(),
@@ -544,36 +577,37 @@ impl DuckDbStore {
 
 fn row_to_event(row: &duckdb::Row<'_>) -> duckdb::Result<CanonicalEvent> {
     let ingest_time: String = row.get(1)?;
-    let event_time: Option<String> = row.get(2)?;
-    let src_port: Option<i64> = row.get(6)?;
-    let dst_port: Option<i64> = row.get(8)?;
-    let parse_status: String = row.get(13)?;
+    let event_time: Option<String> = row.get(3)?;
+    let src_port: Option<i64> = row.get(7)?;
+    let dst_port: Option<i64> = row.get(9)?;
+    let parse_status: String = row.get(14)?;
     Ok(CanonicalEvent {
         event_id: row.get(0)?,
         ingest_time: chrono::DateTime::parse_from_rfc3339(&ingest_time)
             .map(|v| v.with_timezone(&chrono::Utc))
             .unwrap_or_else(|_| chrono::Utc::now()),
+        source_addr: row.get(2)?,
         event_time: event_time.and_then(|value| {
             chrono::DateTime::parse_from_rfc3339(&value)
                 .map(|v| v.with_timezone(&chrono::Utc))
                 .ok()
         }),
-        vendor: row.get(3)?,
-        product: row.get(4)?,
-        src_ip: row.get(5)?,
+        vendor: row.get(4)?,
+        product: row.get(5)?,
+        src_ip: row.get(6)?,
         src_port: src_port.and_then(|v| u16::try_from(v).ok()),
-        dst_ip: row.get(7)?,
+        dst_ip: row.get(8)?,
         dst_port: dst_port.and_then(|v| u16::try_from(v).ok()),
-        protocol: row.get(9)?,
-        action: row.get(10)?,
-        severity: row.get(11)?,
-        raw: row.get(12)?,
+        protocol: row.get(10)?,
+        action: row.get(11)?,
+        severity: row.get(12)?,
+        raw: row.get(13)?,
         parse_status: if parse_status == "parsed" {
             ParseStatus::Parsed
         } else {
             ParseStatus::Failed
         },
-        parse_error: row.get(14)?,
+        parse_error: row.get(15)?,
     })
 }
 
@@ -591,6 +625,7 @@ fn create_events_table_sql(table: &str, if_not_exists: bool) -> String {
         CREATE TABLE {if_not_exists}{table} (
           event_id TEXT PRIMARY KEY,
           ingest_time TEXT NOT NULL,
+          source_addr TEXT NOT NULL,
           event_time TEXT,
           vendor TEXT,
           product TEXT,
@@ -649,6 +684,9 @@ mod tests {
 
         let rows = store.query_recent(10).unwrap();
         assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .all(|row| row.source_addr == "tcp://127.0.0.1:1514"));
 
         let exported = store.export_csv(&csv_path, 10).unwrap();
         assert_eq!(exported, 2);
@@ -724,6 +762,52 @@ mod tests {
                 failed: 1
             }
         );
+    }
+
+    #[test]
+    fn migrates_existing_database_without_source_addr_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("legacy.duckdb");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE events (
+                  event_id TEXT PRIMARY KEY,
+                  ingest_time TEXT NOT NULL,
+                  event_time TEXT,
+                  vendor TEXT,
+                  product TEXT,
+                  src_ip TEXT,
+                  src_port INTEGER,
+                  dst_ip TEXT,
+                  dst_port INTEGER,
+                  protocol TEXT,
+                  action TEXT,
+                  severity TEXT,
+                  raw TEXT NOT NULL,
+                  parse_status TEXT NOT NULL,
+                  parse_error TEXT
+                );
+                INSERT INTO events (
+                  event_id, ingest_time, event_time, vendor, product,
+                  src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
+                  raw, parse_status, parse_error
+                ) VALUES (
+                  'legacy-one', '2026-05-16T00:00:00Z', NULL, 'Sangfor', 'Firewall',
+                  '192.168.1.10', 12345, '8.8.8.8', 53, 'UDP', 'snat', NULL,
+                  'raw legacy', 'parsed', NULL
+                );
+                "#,
+            )
+            .unwrap();
+        }
+
+        let store = DuckDbStore::open(&db_path).unwrap();
+        let rows = store.query_recent(10).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].source_addr, "unknown://legacy");
     }
 
     #[test]
@@ -882,6 +966,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
+        assert!(columns.contains("source_addr"));
         assert!(columns.contains("src_ip"));
         assert!(!columns.contains("raw"));
         assert!(!columns.contains("event_id"));

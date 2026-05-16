@@ -13,6 +13,7 @@ pub enum ParseStatus {
 pub struct CanonicalEvent {
     pub event_id: String,
     pub ingest_time: DateTime<Utc>,
+    pub source_addr: String,
     pub event_time: Option<DateTime<Utc>>,
     pub vendor: Option<String>,
     pub product: Option<String>,
@@ -41,6 +42,7 @@ impl CanonicalEvent {
         Self {
             event_id: make_event_id(&raw.raw, raw.ingest_time, &raw.source_addr),
             ingest_time: raw.ingest_time,
+            source_addr: raw.source_addr,
             event_time: None,
             vendor: None,
             product: None,
@@ -68,6 +70,7 @@ mod tests {
         let event = CanonicalEvent {
             event_id: "id".to_string(),
             ingest_time: Utc.timestamp_opt(1_778_808_000, 0).unwrap(),
+            source_addr: "udp://192.168.1.1:514".to_string(),
             event_time: None,
             vendor: Some("Sangfor".to_string()),
             product: Some("Firewall".to_string()),
@@ -98,6 +101,7 @@ mod tests {
         let event = CanonicalEvent::failed(raw, "missing required fields");
 
         assert_eq!(event.raw, "not a firewall log");
+        assert_eq!(event.source_addr, "tcp://127.0.0.1:1514");
         assert_eq!(event.parse_status, ParseStatus::Failed);
         assert_eq!(event.parse_error.as_deref(), Some("missing required fields"));
     }

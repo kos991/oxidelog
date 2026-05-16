@@ -71,6 +71,7 @@ impl LogAdapter for SangforAdapter {
         CanonicalEvent {
             event_id: make_event_id(&raw.raw, raw.ingest_time, &raw.source_addr),
             ingest_time: raw.ingest_time,
+            source_addr: raw.source_addr,
             event_time: None,
             vendor: Some("Sangfor".to_string()),
             product: Some("Firewall".to_string()),
