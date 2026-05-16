@@ -24,38 +24,38 @@ impl LogAdapter for SangforAdapter {
             let key = caps.get(1).map(|m| m.as_str()).unwrap_or("");
             let val = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
 
-            match key {
-                "src" | "源IP" => {
+            match canonical_key(key) {
+                Some("src") => {
                     if src.is_none() {
                         src = Some(val.to_string());
                     }
                 }
-                "dst" | "目的IP" => {
+                Some("dst") => {
                     if dst.is_none() {
                         dst = Some(val.to_string());
                     }
                 }
-                "sport" | "源端口" => {
+                Some("sport") => {
                     if sport.is_none() {
                         sport = val.parse().ok();
                     }
                 }
-                "dport" | "目的端口" => {
+                Some("dport") => {
                     if dport.is_none() {
                         dport = val.parse().ok();
                     }
                 }
-                "proto" | "协议" => {
+                Some("proto") => {
                     if proto.is_none() {
                         proto = Some(normalize_protocol(val.to_string()));
                     }
                 }
-                "action" | "NAT类型" => {
+                Some("action") => {
                     if action.is_none() {
                         action = Some(val.to_string());
                     }
                 }
-                "severity" => {
+                Some("severity") => {
                     if severity.is_none() {
                         severity = Some(val.to_string());
                     }
@@ -91,9 +91,30 @@ impl LogAdapter for SangforAdapter {
 fn kv_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r"(?:\s|^)(src|dst|sport|dport|proto|action|severity|源IP|目的IP|源端口|目的端口|协议|NAT类型)(?:=|:)\s*([^\s,]+)")
-            .unwrap()
+        Regex::new(
+            r"(?:\s|^|,)(src|dst|sport|dport|proto|action|severity|源IP|目的IP|源端口|目的端口|协议|NAT类型)(?:=|:)\s*([^\s,]+)",
+        )
+        .unwrap()
     })
+}
+
+fn canonical_key(key: &str) -> Option<&'static str> {
+    match key {
+        "src" | "源IP" => Some("src"),
+        "dst" | "目的IP" => Some("dst"),
+        "sport" | "源端口" => Some("sport"),
+        "dport" | "目的端口" => Some("dport"),
+        "proto" | "协议" => Some("proto"),
+        "action" | "NAT类型" => Some("action"),
+        "severity" => Some("severity"),
+        _ if key.contains("IP") && key.contains("源") => Some("src"),
+        _ if key.contains("IP") && key.contains("目的") => Some("dst"),
+        _ if key.contains("端口") && key.contains("源") => Some("sport"),
+        _ if key.contains("端口") && key.contains("目的") => Some("dport"),
+        _ if key.contains("协议") => Some("proto"),
+        _ if key.contains("NAT") && key.contains("类型") => Some("action"),
+        _ => None,
+    }
 }
 
 fn normalize_protocol(value: String) -> String {
@@ -104,7 +125,6 @@ fn normalize_protocol(value: String) -> String {
         _ => value.to_uppercase(),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -151,14 +171,14 @@ mod tests {
 
     #[test]
     fn parses_chinese_sangfor_nat_line() {
-        let event = SangforAdapter.parse(raw("Apr 29 00:00:09 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:192.168.0.105, 源端口:21527, 目的IP:10.4.90.205, 目的端口:2048, 协议:1, 转换后的IP:58.216.48.6, 转换后的端口:21527"));
+        let event = SangforAdapter.parse(raw("Apr 23 20:09:52 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:2.55.80.6, 源端口:54213, 目的IP:211.93.49.88, 目的端口:46541, 协议:17, 转换后的IP:58.216.48.6, 转换后的端口:54213"));
 
         assert_eq!(event.parse_status, ParseStatus::Parsed);
-        assert_eq!(event.src_ip.as_deref(), Some("192.168.0.105"));
-        assert_eq!(event.src_port, Some(21527));
-        assert_eq!(event.dst_ip.as_deref(), Some("10.4.90.205"));
-        assert_eq!(event.dst_port, Some(2048));
-        assert_eq!(event.protocol.as_deref(), Some("ICMP"));
+        assert_eq!(event.src_ip.as_deref(), Some("2.55.80.6"));
+        assert_eq!(event.src_port, Some(54213));
+        assert_eq!(event.dst_ip.as_deref(), Some("211.93.49.88"));
+        assert_eq!(event.dst_port, Some(46541));
+        assert_eq!(event.protocol.as_deref(), Some("UDP"));
         assert_eq!(event.action.as_deref(), Some("snat"));
     }
 }

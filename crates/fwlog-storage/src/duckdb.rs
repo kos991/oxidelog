@@ -127,6 +127,82 @@ impl DuckDbStore {
         Ok(events.len())
     }
 
+    pub fn replace_all_events(
+        &self,
+        events: &[CanonicalEvent],
+        expected_source_rows: u64,
+    ) -> Result<usize> {
+        let empty_raw_rows = self.empty_raw_rows()?;
+        if empty_raw_rows > 0 {
+            bail!(
+                "refuse to reparse: {} events have empty raw payloads",
+                empty_raw_rows
+            );
+        }
+
+        self.conn.execute_batch(
+            r#"
+            DROP TABLE IF EXISTS events_reparse;
+            "#,
+        )?;
+        self.conn
+            .execute_batch(&create_events_table_sql("events_reparse", false))?;
+        {
+            let mut app = self
+                .conn
+                .appender("events_reparse")
+                .context("create reparse appender")?;
+            for event in events {
+                app.append_row(params![
+                    event.event_id.as_str(),
+                    event.ingest_time.to_rfc3339(),
+                    event.event_time.as_ref().map(|v| v.to_rfc3339()),
+                    event.vendor.as_deref(),
+                    event.product.as_deref(),
+                    event.src_ip.as_deref(),
+                    event.src_port.map(i64::from),
+                    event.dst_ip.as_deref(),
+                    event.dst_port.map(i64::from),
+                    event.protocol.as_deref(),
+                    event.action.as_deref(),
+                    event.severity.as_deref(),
+                    event.raw.as_str(),
+                    status_str(event.parse_status),
+                    event.parse_error.as_deref(),
+                ])?;
+            }
+        }
+        let current_rows = self.event_stats()?.total;
+        if current_rows != expected_source_rows {
+            self.conn
+                .execute_batch("DROP TABLE IF EXISTS events_reparse;")?;
+            bail!(
+                "refuse to replace events: source row count changed from {} to {}",
+                expected_source_rows,
+                current_rows
+            );
+        }
+        self.conn.execute_batch(
+            r#"
+            BEGIN TRANSACTION;
+            DROP TABLE events;
+            ALTER TABLE events_reparse RENAME TO events;
+            COMMIT;
+            "#,
+        )?;
+        Ok(events.len())
+    }
+
+    pub fn empty_raw_rows(&self) -> Result<u64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM events WHERE raw = ''", [], |row| {
+                row.get(0)
+            })
+            .context("count empty raw events")?;
+        Ok(count.max(0) as u64)
+    }
+
     pub fn compact_to(
         &self,
         output_path: impl AsRef<Path>,
@@ -648,6 +724,65 @@ mod tests {
                 failed: 1
             }
         );
+    }
+
+    #[test]
+    fn replace_all_events_preserves_ids_and_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+        let original = vec![
+            event("one", ParseStatus::Parsed),
+            event("two", ParseStatus::Failed),
+        ];
+        store.insert_batch(&original).unwrap();
+
+        let mut replacement = original.clone();
+        replacement[0].action = Some("snat".to_string());
+        let rows = store.replace_all_events(&replacement, 2).unwrap();
+
+        assert_eq!(rows, 2);
+        let stored = store.query_recent(10).unwrap();
+        assert_eq!(stored.len(), 2);
+        assert!(stored.iter().any(|row| row.event_id == "one"));
+        assert!(stored.iter().any(|row| row.event_id == "two"));
+        assert_eq!(store.event_stats().unwrap().total, 2);
+    }
+
+    #[test]
+    fn replace_all_events_rejects_empty_raw_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+        let mut compacted = event("one", ParseStatus::Parsed);
+        compacted.raw = String::new();
+        store.insert_batch(&[compacted]).unwrap();
+
+        let err = store
+            .replace_all_events(&[event("replacement", ParseStatus::Parsed)], 1)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("empty raw payloads"));
+        assert_eq!(store.event_stats().unwrap().total, 1);
+    }
+
+    #[test]
+    fn replace_all_events_rejects_changed_source_row_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+        store.insert_batch(&[event("one", ParseStatus::Parsed)]).unwrap();
+
+        let err = store
+            .replace_all_events(&[event("replacement", ParseStatus::Parsed)], 2)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("source row count changed"));
+        let stored = store.query_recent(10).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].event_id, "one");
     }
 
     #[test]

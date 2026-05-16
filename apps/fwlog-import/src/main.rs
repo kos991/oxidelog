@@ -10,7 +10,7 @@ use chrono::Utc;
 use clap::Parser;
 use flate2::read::GzDecoder;
 use fwlog_adapter::{LogAdapter, SangforAdapter};
-use fwlog_domain::RawLog;
+use fwlog_domain::{CanonicalEvent, RawLog};
 use fwlog_storage::DuckDbStore;
 use rayon::prelude::*;
 
@@ -38,12 +38,46 @@ struct Args {
     slim_parquet_input: Option<PathBuf>,
     #[arg(long)]
     slim_parquet_output: Option<PathBuf>,
+    #[arg(long)]
+    reparse_existing: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let started = Instant::now();
     let store = DuckDbStore::open(&args.duckdb)?;
+
+    if args.reparse_existing {
+        let stats = store.event_stats()?;
+        let empty_raw_rows = store.empty_raw_rows()?;
+        if empty_raw_rows > 0 {
+            anyhow::bail!(
+                "refuse to reparse: {} events have empty raw payloads; restore frozen/raw source or compact without dropping raw first",
+                empty_raw_rows
+            );
+        }
+        let events = store.query_recent(stats.total as usize)?;
+        let reparsed: Vec<CanonicalEvent> = events
+            .into_par_iter()
+            .map(|event| {
+                let original_event_id = event.event_id;
+                let mut reparsed = SangforAdapter.parse(RawLog {
+                    ingest_time: event.ingest_time,
+                    source_addr: "duckdb://reparse".to_string(),
+                    raw: event.raw,
+                });
+                reparsed.event_id = original_event_id;
+                reparsed
+            })
+            .collect();
+        let rows = store.replace_all_events(&reparsed, stats.total)?;
+        eprintln!(
+            "OxideLog reparse existing finished rows={} elapsed={:.1}s",
+            rows,
+            started.elapsed().as_secs_f64()
+        );
+        return Ok(());
+    }
 
     if let (Some(input), Some(output)) = (
         args.slim_parquet_input.as_ref(),
