@@ -12,9 +12,57 @@ pub struct SangforAdapter;
 
 impl LogAdapter for SangforAdapter {
     fn parse(&self, raw: RawLog) -> CanonicalEvent {
-        let src = capture(raw.raw.as_str(), src_regex());
-        let dst = capture(raw.raw.as_str(), dst_regex());
-        let action = capture(raw.raw.as_str(), action_regex());
+        let mut src = None;
+        let mut dst = None;
+        let mut sport = None;
+        let mut dport = None;
+        let mut proto = None;
+        let mut action = None;
+        let mut severity = None;
+
+        for caps in kv_regex().captures_iter(&raw.raw) {
+            let key = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let val = caps.get(2).map(|m| m.as_str().trim()).unwrap_or("");
+
+            match key {
+                "src" | "源IP" => {
+                    if src.is_none() {
+                        src = Some(val.to_string());
+                    }
+                }
+                "dst" | "目的IP" => {
+                    if dst.is_none() {
+                        dst = Some(val.to_string());
+                    }
+                }
+                "sport" | "源端口" => {
+                    if sport.is_none() {
+                        sport = val.parse().ok();
+                    }
+                }
+                "dport" | "目的端口" => {
+                    if dport.is_none() {
+                        dport = val.parse().ok();
+                    }
+                }
+                "proto" | "协议" => {
+                    if proto.is_none() {
+                        proto = Some(normalize_protocol(val.to_string()));
+                    }
+                }
+                "action" | "NAT类型" => {
+                    if action.is_none() {
+                        action = Some(val.to_string());
+                    }
+                }
+                "severity" => {
+                    if severity.is_none() {
+                        severity = Some(val.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
 
         if src.is_none() || dst.is_none() || action.is_none() {
             return CanonicalEvent::failed(raw, "missing required fields: src, dst, action");
@@ -27,12 +75,12 @@ impl LogAdapter for SangforAdapter {
             vendor: Some("Sangfor".to_string()),
             product: Some("Firewall".to_string()),
             src_ip: src,
-            src_port: capture(raw.raw.as_str(), sport_regex()).and_then(|v| v.parse().ok()),
+            src_port: sport,
             dst_ip: dst,
-            dst_port: capture(raw.raw.as_str(), dport_regex()).and_then(|v| v.parse().ok()),
-            protocol: capture(raw.raw.as_str(), proto_regex()).map(|v| v.to_uppercase()),
+            dst_port: dport,
+            protocol: proto,
             action,
-            severity: capture(raw.raw.as_str(), severity_regex()),
+            severity,
             raw: raw.raw,
             parse_status: ParseStatus::Parsed,
             parse_error: None,
@@ -40,47 +88,23 @@ impl LogAdapter for SangforAdapter {
     }
 }
 
-fn capture(input: &str, regex: &Regex) -> Option<String> {
-    regex
-        .captures(input)
-        .and_then(|caps| caps.get(1))
-        .map(|value| value.as_str().trim().to_string())
+fn kv_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r"(?:\s|^)(src|dst|sport|dport|proto|action|severity|源IP|目的IP|源端口|目的端口|协议|NAT类型)(?:=|:)\s*([^\s,]+)")
+            .unwrap()
+    })
 }
 
-fn src_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)src=([0-9a-fA-F:.]+)").unwrap())
+fn normalize_protocol(value: String) -> String {
+    match value.as_str() {
+        "1" => "ICMP".to_string(),
+        "6" => "TCP".to_string(),
+        "17" => "UDP".to_string(),
+        _ => value.to_uppercase(),
+    }
 }
 
-fn dst_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)dst=([0-9a-fA-F:.]+)").unwrap())
-}
-
-fn sport_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)sport=(\d+)").unwrap())
-}
-
-fn dport_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)dport=(\d+)").unwrap())
-}
-
-fn proto_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)proto=([A-Za-z0-9_-]+)").unwrap())
-}
-
-fn action_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)action=([A-Za-z0-9_-]+)").unwrap())
-}
-
-fn severity_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r"(?:^|\s)severity=([A-Za-z0-9_-]+)").unwrap())
-}
 
 #[cfg(test)]
 mod tests {
@@ -123,5 +147,18 @@ mod tests {
         let failed = SangforAdapter.parse(raw("this is not a valid firewall log"));
         assert_eq!(failed.parse_status, ParseStatus::Failed);
         assert!(failed.parse_error.is_some());
+    }
+
+    #[test]
+    fn parses_chinese_sangfor_nat_line() {
+        let event = SangforAdapter.parse(raw("Apr 29 00:00:09 localhost nat: 日志类型:NAT日志, NAT类型:snat, 源IP:192.168.0.105, 源端口:21527, 目的IP:10.4.90.205, 目的端口:2048, 协议:1, 转换后的IP:58.216.48.6, 转换后的端口:21527"));
+
+        assert_eq!(event.parse_status, ParseStatus::Parsed);
+        assert_eq!(event.src_ip.as_deref(), Some("192.168.0.105"));
+        assert_eq!(event.src_port, Some(21527));
+        assert_eq!(event.dst_ip.as_deref(), Some("10.4.90.205"));
+        assert_eq!(event.dst_port, Some(2048));
+        assert_eq!(event.protocol.as_deref(), Some("ICMP"));
+        assert_eq!(event.action.as_deref(), Some("snat"));
     }
 }

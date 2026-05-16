@@ -24,10 +24,11 @@ if [ ! -f config/server.toml ]; then
   exit 1
 fi
 
-cargo build --release -p fwlogd
+cargo build --release -p fwlogd -p fwlog-import
 
 install -d /opt/oxidelog/bin
 install -m 0755 target/release/fwlogd /opt/oxidelog/bin/fwlogd
+install -m 0755 target/release/fwlog-import /opt/oxidelog/bin/fwlog-import
 
 install -d /etc/oxidelog
 if [ ! -f /etc/oxidelog/oxidelog.env ]; then

@@ -42,6 +42,18 @@ bash scripts/smoke-production.sh
 
 The production smoke defaults to API `http://192.168.0.142:18080` and TCP ingest `192.168.0.142:1514`. It checks `/api/health`, `/api/system/status`, sample TCP ingest, `/api/events`, CSV export, Parquet archive/list, and Frozen archive/list/restore. JSON, CSV, and ingested sample artifacts are written under `smoke-production-output/<timestamp>/`.
 
+Import historical Sangfor firewall logs in bulk:
+
+```powershell
+.\scripts\import-history.ps1 -LocalInput "D:\项目工程\OxideLog\sangfor_fw_log"
+```
+
+```bash
+sudo bash scripts/import-history-linux.sh /opt/sangfor_fw_log /var/lib/oxidelog/duckdb/oxidelog.duckdb 500000
+```
+
+The import script stops `oxidelog.service`, uses the high-throughput `fwlog-import` binary, and starts the service again when the import finishes. Use TCP/UDP syslog only for live firewall traffic; do not replay large historical files through TCP.
+
 If `[auth].api_token` is set in the server config, or `OXIDELOG_API_TOKEN` is set in `/etc/oxidelog/oxidelog.env`, pass the same token with `-ApiToken`, `--api-token`, or the `OXIDELOG_API_TOKEN` environment variable. The token is sent as `Authorization: Bearer <token>` and is not printed by the smoke scripts.
 
 Override targets or skip TCP ingest when needed:

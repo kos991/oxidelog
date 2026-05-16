@@ -1,0 +1,17 @@
+[package]
+name = "fwlog-import"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+csv.workspace = true
+flate2.workspace = true
+fwlog-adapter = { path = "../../crates/fwlog-adapter" }
+fwlog-domain = { path = "../../crates/fwlog-domain" }
+fwlog-storage = { path = "../../crates/fwlog-storage" }
+tempfile.workspace = true
+rayon.workspace = true

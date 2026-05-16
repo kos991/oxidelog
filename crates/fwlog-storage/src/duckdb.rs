@@ -90,6 +90,63 @@ impl DuckDbStore {
         Ok(inserted)
     }
 
+    pub fn import_events_csv(&self, path: impl AsRef<Path>) -> Result<usize> {
+        let path = path.as_ref();
+        let sql_path = path.to_string_lossy().replace('\'', "''");
+        let sql = format!(
+            r#"
+            CREATE TEMP TABLE import_events AS SELECT * FROM events LIMIT 0;
+            COPY import_events FROM '{}' (HEADER, AUTO_DETECT TRUE);
+            INSERT OR IGNORE INTO events SELECT * FROM import_events;
+            DROP TABLE import_events;
+            "#,
+            sql_path
+        );
+        self.conn
+            .execute_batch(&sql)
+            .with_context(|| format!("import events csv {}", path.display()))?;
+        Ok(0)
+    }
+
+    pub fn append_events(&self, events: &[CanonicalEvent]) -> Result<usize> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        self.conn.execute_batch("CREATE TEMP TABLE IF NOT EXISTS import_events AS SELECT * FROM events LIMIT 0;")?;
+        {
+            let mut app = self.conn.appender("import_events").context("create appender")?;
+            for event in events {
+                app.append_row(params![
+                    event.event_id.as_str(),
+                    event.ingest_time.to_rfc3339(),
+                    event.event_time.as_ref().map(|v| v.to_rfc3339()),
+                    event.vendor.as_deref(),
+                    event.product.as_deref(),
+                    event.src_ip.as_deref(),
+                    event.src_port.map(i64::from),
+                    event.dst_ip.as_deref(),
+                    event.dst_port.map(i64::from),
+                    event.protocol.as_deref(),
+                    event.action.as_deref(),
+                    event.severity.as_deref(),
+                    event.raw.as_str(),
+                    status_str(event.parse_status),
+                    event.parse_error.as_deref(),
+                ])?;
+            }
+        }
+
+        self.conn.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO events SELECT * FROM import_events;
+            DELETE FROM import_events;
+            "#,
+        )?;
+
+        Ok(events.len())
+    }
+
     pub fn query_recent(&self, limit: usize) -> Result<Vec<CanonicalEvent>> {
         let mut stmt = self.conn.prepare(
             r#"
