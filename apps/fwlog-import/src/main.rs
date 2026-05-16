@@ -17,18 +17,39 @@ use rayon::prelude::*;
 #[derive(Debug, Parser)]
 struct Args {
     #[arg(long)]
-    input: PathBuf,
+    input: Option<PathBuf>,
     #[arg(long)]
     duckdb: PathBuf,
     #[arg(long, default_value_t = 100_000)]
     batch_size: usize,
+    #[arg(long)]
+    compact_output: Option<PathBuf>,
+    #[arg(long)]
+    drop_parsed_raw: bool,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let started = Instant::now();
-    let files = collect_files(&args.input)?;
     let store = DuckDbStore::open(&args.duckdb)?;
+
+    if let Some(output) = args.compact_output {
+        let rows = store.compact_to(&output, args.drop_parsed_raw)?;
+        eprintln!(
+            "OxideLog compact finished output={} rows={} drop_parsed_raw={} elapsed={:.1}s",
+            output.display(),
+            rows,
+            args.drop_parsed_raw,
+            started.elapsed().as_secs_f64()
+        );
+        return Ok(());
+    }
+
+    let input = args
+        .input
+        .as_deref()
+        .context("--input is required unless --compact-output is used")?;
+    let files = collect_files(input)?;
     let adapter = SangforAdapter;
     let mut total_lines = 0_u64;
     let mut total_files = 0_u64;

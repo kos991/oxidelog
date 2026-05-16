@@ -54,6 +54,14 @@ sudo bash scripts/import-history-linux.sh /opt/sangfor_fw_log /var/lib/oxidelog/
 
 The import script stops `oxidelog.service`, uses the high-throughput `fwlog-import` binary, and starts the service again when the import finishes. Use TCP/UDP syslog only for live firewall traffic; do not replay large historical files through TCP.
 
+Compact the hot DuckDB file after a bulk historical import:
+
+```powershell
+.\scripts\compact-hot.ps1
+```
+
+This keeps failed rows' raw text in DuckDB, moves the raw import directory into a Zstd tar archive under frozen storage, and drops raw text from parsed hot rows so the UI/API query database stays small.
+
 If `[auth].api_token` is set in the server config, or `OXIDELOG_API_TOKEN` is set in `/etc/oxidelog/oxidelog.env`, pass the same token with `-ApiToken`, `--api-token`, or the `OXIDELOG_API_TOKEN` environment variable. The token is sent as `Authorization: Bearer <token>` and is not printed by the smoke scripts.
 
 Override targets or skip TCP ingest when needed:

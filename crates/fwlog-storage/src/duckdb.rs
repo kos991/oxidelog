@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use duckdb::{params, Connection};
 use fwlog_domain::{CanonicalEvent, ParseStatus};
 
@@ -29,27 +29,7 @@ impl DuckDbStore {
     }
 
     fn init(&self) -> Result<()> {
-        self.conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS events (
-              event_id TEXT PRIMARY KEY,
-              ingest_time TEXT NOT NULL,
-              event_time TEXT,
-              vendor TEXT,
-              product TEXT,
-              src_ip TEXT,
-              src_port INTEGER,
-              dst_ip TEXT,
-              dst_port INTEGER,
-              protocol TEXT,
-              action TEXT,
-              severity TEXT,
-              raw TEXT NOT NULL,
-              parse_status TEXT NOT NULL,
-              parse_error TEXT
-            );
-            "#,
-        )?;
+        self.conn.execute_batch(&create_events_table_sql("events", true))?;
         Ok(())
     }
 
@@ -145,6 +125,54 @@ impl DuckDbStore {
         )?;
 
         Ok(events.len())
+    }
+
+    pub fn compact_to(
+        &self,
+        output_path: impl AsRef<Path>,
+        drop_parsed_raw: bool,
+    ) -> Result<usize> {
+        let output_path = output_path.as_ref();
+        if output_path.exists() {
+            bail!("compact output already exists: {}", output_path.display());
+        }
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).context("create compact output directory")?;
+        }
+
+        let sql_path = output_path.to_string_lossy().replace('\'', "''");
+        let raw_expr = if drop_parsed_raw {
+            "CASE WHEN parse_status = 'parsed' THEN '' ELSE raw END"
+        } else {
+            "raw"
+        };
+        let sql = format!(
+            r#"
+            ATTACH '{}' AS compact;
+            {}
+            INSERT INTO compact.events (
+              event_id, ingest_time, event_time, vendor, product,
+              src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
+              raw, parse_status, parse_error
+            )
+            SELECT
+              event_id, ingest_time, event_time, vendor, product,
+              src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
+              {}, parse_status, parse_error
+            FROM events;
+            DETACH compact;
+            "#,
+            sql_path,
+            create_events_table_sql("compact.events", false),
+            raw_expr
+        );
+        self.conn.execute_batch(&sql).context("compact duckdb")?;
+
+        let compact = Connection::open(output_path).context("open compacted duckdb")?;
+        let count: i64 = compact
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .context("count compacted events")?;
+        Ok(count as usize)
     }
 
     pub fn query_recent(&self, limit: usize) -> Result<Vec<CanonicalEvent>> {
@@ -346,6 +374,31 @@ fn status_str(status: ParseStatus) -> &'static str {
     }
 }
 
+fn create_events_table_sql(table: &str, if_not_exists: bool) -> String {
+    let if_not_exists = if if_not_exists { "IF NOT EXISTS " } else { "" };
+    format!(
+        r#"
+        CREATE TABLE {if_not_exists}{table} (
+          event_id TEXT PRIMARY KEY,
+          ingest_time TEXT NOT NULL,
+          event_time TEXT,
+          vendor TEXT,
+          product TEXT,
+          src_ip TEXT,
+          src_port INTEGER,
+          dst_ip TEXT,
+          dst_port INTEGER,
+          protocol TEXT,
+          action TEXT,
+          severity TEXT,
+          raw TEXT NOT NULL,
+          parse_status TEXT NOT NULL,
+          parse_error TEXT
+        );
+        "#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,5 +514,27 @@ mod tests {
                 failed: 1
             }
         );
+    }
+
+    #[test]
+    fn compacts_to_new_database_and_drops_only_parsed_raw() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let compact_path = dir.path().join("compact.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        store
+            .insert_batch(&[event("one", ParseStatus::Parsed), event("two", ParseStatus::Failed)])
+            .unwrap();
+
+        let copied = store.compact_to(&compact_path, true).unwrap();
+        assert_eq!(copied, 2);
+
+        let compact = DuckDbStore::open(&compact_path).unwrap();
+        let rows = compact.query_recent(10).unwrap();
+        let parsed = rows.iter().find(|row| row.event_id == "one").unwrap();
+        let failed = rows.iter().find(|row| row.event_id == "two").unwrap();
+        assert_eq!(parsed.raw, "");
+        assert_eq!(failed.raw, "raw two");
     }
 }
