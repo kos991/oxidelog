@@ -9,13 +9,17 @@ anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
 csv.workspace = true
+flate2.workspace = true
+fwlog-adapter = { path = "../fwlog-adapter" }
 fwlog-domain = { path = "../fwlog-domain" }
 fwlog-storage = { path = "../fwlog-storage" }
 serde.workspace = true
 serde_json.workspace = true
+tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]

@@ -947,14 +947,18 @@ dependencies = [
  "axum",
  "chrono",
  "csv",
+ "flate2",
+ "fwlog-adapter",
  "fwlog-domain",
  "fwlog-storage",
  "serde",
  "serde_json",
+ "tar",
  "tempfile",
  "tokio",
  "tower",
  "tower-http 0.5.2",
+ "zstd",
 ]
 
 [[package]]

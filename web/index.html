@@ -124,6 +124,13 @@
       grid-template-columns: 1fr 1fr;
       gap: 12px;
     }
+    .cold-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .cold-form input, .cold-form button { width: 100%; }
+    .cold-form button { grid-column: 1 / -1; }
     .list {
       display: grid;
       gap: 6px;
@@ -239,6 +246,17 @@
           </div>
         </div>
       </section>
+      <section>
+        <h2>历史追溯</h2>
+        <div class="cold-form">
+          <input id="coldDay" type="text" placeholder="日期 20260516">
+          <input id="coldSrcIp" type="text" placeholder="源 IP">
+          <input id="coldDstIp" type="text" placeholder="目的 IP">
+          <input id="coldKeyword" type="text" placeholder="关键字">
+          <button id="coldSearch" type="button">流式检索 Frozen</button>
+        </div>
+        <p id="coldStatus" class="muted">不解压落盘，直接扫描 .tar.zst</p>
+      </section>
       <div id="error" class="error"></div>
     </div>
     <section>
@@ -312,6 +330,23 @@
       link.download = "oxidelog-events.csv";
       link.click();
       URL.revokeObjectURL(url);
+    }
+
+    async function coldSearch() {
+      const params = new URLSearchParams();
+      const day = $("coldDay").value.trim();
+      const src = $("coldSrcIp").value.trim();
+      const dst = $("coldDstIp").value.trim();
+      const keyword = $("coldKeyword").value.trim();
+      if (day) params.set("day", day);
+      if (src) params.set("src_ip", src);
+      if (dst) params.set("dst_ip", dst);
+      if (keyword) params.set("keyword", keyword);
+      params.set("limit", "200");
+      $("coldStatus").textContent = "检索中...";
+      const result = await getJson("/api/cold/search?" + params.toString());
+      renderEvents(Array.isArray(result.events) ? result.events : []);
+      $("coldStatus").textContent = "扫描 " + value(result.scanned_lines || 0) + " 行，命中 " + value(result.matched || 0) + " 条" + (result.limited ? "（已截断）" : "");
     }
 
     function setHealth(ok, text) {
@@ -409,6 +444,11 @@
       $("error").style.display = "block";
     }));
     $("refresh").addEventListener("click", refresh);
+    $("coldSearch").addEventListener("click", () => coldSearch().catch((error) => {
+      $("error").textContent = "历史追溯失败：" + error.message;
+      $("error").style.display = "block";
+      $("coldStatus").textContent = "检索失败";
+    }));
     refresh();
     setInterval(refresh, 30000);
   </script>

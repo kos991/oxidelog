@@ -103,7 +103,7 @@ fn collect_frozen_files(dir: &Path, files: &mut Vec<FrozenFile>) -> Result<()> {
             .with_context(|| format!("read frozen metadata {}", path.display()))?;
         if metadata.is_dir() {
             collect_frozen_files(&path, files)?;
-        } else if metadata.is_file() && is_raw_zst(&path) {
+        } else if metadata.is_file() && is_frozen_archive(&path) {
             files.push(FrozenFile {
                 path,
                 bytes: metadata.len(),
@@ -113,10 +113,13 @@ fn collect_frozen_files(dir: &Path, files: &mut Vec<FrozenFile>) -> Result<()> {
     Ok(())
 }
 
-fn is_raw_zst(path: &Path) -> bool {
+fn is_frozen_archive(path: &Path) -> bool {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
-        .is_some_and(|file_name| file_name.ends_with(".raw.zst"))
+        .is_some_and(|file_name| {
+            file_name.ends_with(".raw.zst")
+                || (file_name.starts_with("raw-import-") && file_name.ends_with(".tar.zst"))
+        })
 }
 
 #[cfg(test)]
@@ -142,15 +145,17 @@ mod tests {
     }
 
     #[test]
-    fn list_frozen_files_returns_only_raw_zst_files_sorted_by_path() {
+    fn list_frozen_files_returns_raw_zst_and_raw_import_tar_zst_sorted_by_path() {
         let dir = tempfile::tempdir().unwrap();
         let root_frozen = dir.path().join("b.raw.zst");
+        let raw_import = dir.path().join("raw-import-20260516.tar.zst");
         let nested_dir = dir.path().join("nested");
         let nested_frozen = nested_dir.join("a.raw.zst");
         let not_raw_zst = nested_dir.join("ignore.zst");
         let not_zst = nested_dir.join("ignore.raw");
         std::fs::create_dir_all(&nested_dir).unwrap();
         std::fs::write(&root_frozen, b"root").unwrap();
+        std::fs::write(&raw_import, b"raw-import").unwrap();
         std::fs::write(&nested_frozen, b"nested").unwrap();
         std::fs::write(not_raw_zst, b"ignore").unwrap();
         std::fs::write(not_zst, b"ignore").unwrap();
@@ -158,9 +163,10 @@ mod tests {
         let files = list_frozen_files(dir.path()).unwrap();
 
         let paths: Vec<_> = files.iter().map(|file| file.path.clone()).collect();
-        assert_eq!(paths, vec![root_frozen, nested_frozen]);
+        assert_eq!(paths, vec![root_frozen, nested_frozen, raw_import]);
         assert_eq!(files[0].bytes, 4);
         assert_eq!(files[1].bytes, 6);
+        assert_eq!(files[2].bytes, 10);
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use std::{
     fs,
+    fs::File,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -12,6 +14,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use fwlog_adapter::{LogAdapter, SangforAdapter};
+use fwlog_domain::{CanonicalEvent, RawLog};
 use fwlog_storage::{
     list_archive_files, list_frozen_files, read_frozen_raw, write_frozen_raw, ArchiveFile,
     DuckDbStore, FrozenFile,
@@ -23,12 +27,33 @@ use crate::ApiState;
 
 const APP_HTML: &str = include_str!("../../../web/index.html");
 const MAX_QUERY_LIMIT: usize = 100_000;
+const MAX_COLD_SEARCH_LIMIT: usize = 10_000;
 static ARCHIVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize)]
 pub struct LimitQuery {
     #[serde(default = "default_limit")]
     limit: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ColdSearchQuery {
+    day: Option<String>,
+    src_ip: Option<String>,
+    dst_ip: Option<String>,
+    action: Option<String>,
+    keyword: Option<String>,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ColdSearchResponse {
+    files: usize,
+    scanned_lines: u64,
+    matched: usize,
+    limited: bool,
+    events: Vec<CanonicalEvent>,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +109,10 @@ fn default_limit() -> usize {
 
 fn bounded_limit(limit: usize) -> usize {
     limit.clamp(1, MAX_QUERY_LIMIT)
+}
+
+fn bounded_cold_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_COLD_SEARCH_LIMIT)
 }
 
 fn archive_stamp(prefix: &str, suffix: &str) -> String {
@@ -157,6 +186,23 @@ pub async fn events(
     }
 }
 
+pub async fn cold_search(
+    Extension(state): Extension<ApiState>,
+    Query(query): Query<ColdSearchQuery>,
+) -> Response {
+    let frozen_dir = state.frozen_dir.as_ref().clone();
+    let limit = bounded_cold_limit(query.limit);
+    let result = tokio::task::spawn_blocking(move || search_cold_archives(&frozen_dir, query, limit))
+        .await
+        .map_err(|err| anyhow!("cold search worker failed: {err}"))
+        .and_then(|result| result);
+
+    match result {
+        Ok(response) => Json(response).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+    }
+}
+
 pub async fn export_csv(
     Extension(state): Extension<ApiState>,
     Query(query): Query<LimitQuery>,
@@ -179,6 +225,158 @@ pub async fn export_csv(
             .into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
+}
+
+fn search_cold_archives(
+    frozen_dir: &Path,
+    query: ColdSearchQuery,
+    limit: usize,
+) -> anyhow::Result<ColdSearchResponse> {
+    let archives = cold_archive_files(frozen_dir, query.day.as_deref())?;
+    let mut scanned_lines = 0_u64;
+    let mut events = Vec::new();
+    let adapter = SangforAdapter;
+
+    for archive_path in &archives {
+        let file = File::open(archive_path)
+            .with_context(|| format!("open cold archive {}", archive_path.display()))?;
+        let decoder = zstd::stream::read::Decoder::new(file)
+            .with_context(|| format!("decode cold archive {}", archive_path.display()))?;
+        let mut archive = tar::Archive::new(decoder);
+        for entry in archive.entries().context("read cold tar entries")? {
+            let entry = entry.context("read cold tar entry")?;
+            if !entry.header().entry_type().is_file() {
+                continue;
+            }
+            let entry_path = entry.path()?.to_string_lossy().into_owned();
+            let source_addr = format!("frozen://{entry_path}");
+            let mut reader: Box<dyn BufRead> = if entry_path.ends_with(".gz") {
+                Box::new(BufReader::new(flate2::read::GzDecoder::new(entry)))
+            } else {
+                Box::new(BufReader::new(entry))
+            };
+            if scan_cold_reader(
+                &mut *reader,
+                &adapter,
+                &query,
+                limit,
+                &source_addr,
+                &mut scanned_lines,
+                &mut events,
+            )? {
+                return Ok(ColdSearchResponse {
+                    files: archives.len(),
+                    scanned_lines,
+                    matched: events.len(),
+                    limited: true,
+                    events,
+                });
+            }
+        }
+    }
+
+    Ok(ColdSearchResponse {
+        files: archives.len(),
+        scanned_lines,
+        matched: events.len(),
+        limited: false,
+        events,
+    })
+}
+
+fn scan_cold_reader(
+    reader: &mut dyn BufRead,
+    adapter: &SangforAdapter,
+    query: &ColdSearchQuery,
+    limit: usize,
+    source_addr: &str,
+    scanned_lines: &mut u64,
+    events: &mut Vec<CanonicalEvent>,
+) -> anyhow::Result<bool> {
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        let bytes = reader.read_until(b'\n', &mut buffer)?;
+        if bytes == 0 {
+            break;
+        }
+        while buffer.last().is_some_and(|byte| *byte == b'\n' || *byte == b'\r') {
+            buffer.pop();
+        }
+        if buffer.is_empty() {
+            continue;
+        }
+        *scanned_lines += 1;
+        let raw = String::from_utf8_lossy(&buffer).into_owned();
+        if let Some(keyword) = query.keyword.as_deref() {
+            if !raw.contains(keyword) {
+                continue;
+            }
+        }
+        let event = adapter.parse(RawLog {
+            ingest_time: Utc::now(),
+            source_addr: source_addr.to_string(),
+            raw,
+        });
+        if !matches_cold_query(&event, query) {
+            continue;
+        }
+        events.push(event);
+        if events.len() >= limit {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn cold_archive_files(frozen_dir: &Path, day: Option<&str>) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_cold_archive_files(frozen_dir, day, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_cold_archive_files(
+    dir: &Path,
+    day: Option<&str>,
+    files: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir).with_context(|| format!("read frozen directory {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_cold_archive_files(&path, day, files)?;
+            continue;
+        }
+        let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
+        let day_matches = day.is_none_or(|value| name.contains(value));
+        if name.starts_with("raw-import-") && name.ends_with(".tar.zst") && day_matches {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn matches_cold_query(event: &CanonicalEvent, query: &ColdSearchQuery) -> bool {
+    if let Some(value) = query.src_ip.as_deref() {
+        if event.src_ip.as_deref() != Some(value) {
+            return false;
+        }
+    }
+    if let Some(value) = query.dst_ip.as_deref() {
+        if event.dst_ip.as_deref() != Some(value) {
+            return false;
+        }
+    }
+    if let Some(value) = query.action.as_deref() {
+        if event.action.as_deref() != Some(value) {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -445,6 +643,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cold_search_streams_raw_import_tar_zst_without_extracting() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        std::fs::create_dir_all(&frozen_dir).unwrap();
+        write_raw_import_tar_zst(
+            &frozen_dir.join("raw-import-20260516-test.tar.zst"),
+            "Sangfor: src=192.168.0.105 dst=10.4.90.205 sport=21527 dport=2048 proto=TCP action=snat severity=info\n\
+             Sangfor: src=192.168.0.200 dst=10.4.90.206 sport=21528 dport=443 proto=TCP action=snat severity=info\n",
+        );
+
+        let app = crate::router(db_path, parquet_dir, frozen_dir);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/cold/search?day=20260516&src_ip=192.168.0.105&limit=5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["files"], 1);
+        assert_eq!(body["scanned_lines"], 2);
+        assert_eq!(body["matched"], 1);
+        assert_eq!(body["events"][0]["src_ip"], "192.168.0.105");
+        assert_eq!(body["events"][0]["dst_ip"], "10.4.90.205");
+    }
+
+    #[tokio::test]
+    async fn cold_search_streams_gzip_members_inside_raw_import_tar_zst() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        std::fs::create_dir_all(&frozen_dir).unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(
+            &mut gz,
+            b"Sangfor: src=192.168.9.10 dst=10.4.90.205 sport=21527 dport=2048 proto=UDP action=snat severity=info\n",
+        )
+        .unwrap();
+        write_raw_import_tar_zst_member(
+            &frozen_dir.join("raw-import-20260516-gz.tar.zst"),
+            "logs/sangfor.log-20260516.gz",
+            &gz.finish().unwrap(),
+        );
+
+        let app = crate::router(db_path, parquet_dir, frozen_dir);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/cold/search?day=20260516&src_ip=192.168.9.10&limit=5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["matched"], 1);
+        assert_eq!(body["events"][0]["protocol"], "UDP");
+    }
+
+    #[tokio::test]
     async fn system_status_reports_paths_sizes_and_missing_archive_dirs_as_empty() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("oxidelog.duckdb");
@@ -549,6 +820,23 @@ mod tests {
                 _ => format!("%{byte:02X}").chars().collect(),
             })
             .collect()
+    }
+
+    fn write_raw_import_tar_zst(path: &Path, content: &str) {
+        write_raw_import_tar_zst_member(path, "logs/sangfor.log", content.as_bytes());
+    }
+
+    fn write_raw_import_tar_zst_member(path: &Path, member_name: &str, bytes: &[u8]) {
+        let file = std::fs::File::create(path).unwrap();
+        let encoder = zstd::Encoder::new(file, 3).unwrap();
+        let mut builder = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append_data(&mut header, member_name, bytes).unwrap();
+        let encoder = builder.into_inner().unwrap();
+        encoder.finish().unwrap();
     }
 
     #[test]

@@ -46,6 +46,7 @@ pub fn router_with_options(
         .route("/api/health", get(handlers::health))
         .route("/api/system/status", get(handlers::system_status))
         .route("/api/events", get(handlers::events))
+        .route("/api/cold/search", get(handlers::cold_search))
         .route("/api/events/export.csv", get(handlers::export_csv))
         .route("/api/archive/files", get(handlers::archive_files))
         .route("/api/archive/parquet", post(handlers::archive_parquet))
