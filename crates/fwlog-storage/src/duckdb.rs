@@ -132,6 +132,34 @@ impl DuckDbStore {
         output_path: impl AsRef<Path>,
         drop_parsed_raw: bool,
     ) -> Result<usize> {
+        self.compact_selected_to(output_path, drop_parsed_raw, None, false)
+    }
+
+    pub fn compact_hot_to(
+        &self,
+        output_path: impl AsRef<Path>,
+        hot_limit: usize,
+        drop_parsed_raw: bool,
+    ) -> Result<usize> {
+        self.compact_selected_to(output_path, drop_parsed_raw, Some(hot_limit), true)
+    }
+
+    pub fn compact_limit_to(
+        &self,
+        output_path: impl AsRef<Path>,
+        limit: usize,
+        drop_parsed_raw: bool,
+    ) -> Result<usize> {
+        self.compact_selected_to(output_path, drop_parsed_raw, Some(limit), false)
+    }
+
+    fn compact_selected_to(
+        &self,
+        output_path: impl AsRef<Path>,
+        drop_parsed_raw: bool,
+        hot_limit: Option<usize>,
+        order_by_newest: bool,
+    ) -> Result<usize> {
         let output_path = output_path.as_ref();
         if output_path.exists() {
             bail!("compact output already exists: {}", output_path.display());
@@ -146,6 +174,14 @@ impl DuckDbStore {
         } else {
             "raw"
         };
+        let limit_clause = hot_limit
+            .map(|limit| format!("LIMIT {}", limit))
+            .unwrap_or_default();
+        let order_clause = if order_by_newest {
+            "ORDER BY ingest_time DESC, event_id DESC"
+        } else {
+            ""
+        };
         let sql = format!(
             r#"
             ATTACH '{}' AS compact;
@@ -159,12 +195,16 @@ impl DuckDbStore {
               event_id, ingest_time, event_time, vendor, product,
               src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
               {}, parse_status, parse_error
-            FROM events;
+            FROM events
+            {}
+            {};
             DETACH compact;
             "#,
             sql_path,
             create_events_table_sql("compact.events", false),
-            raw_expr
+            raw_expr,
+            order_clause,
+            limit_clause
         );
         self.conn.execute_batch(&sql).context("compact duckdb")?;
 
@@ -536,5 +576,55 @@ mod tests {
         let failed = rows.iter().find(|row| row.event_id == "two").unwrap();
         assert_eq!(parsed.raw, "");
         assert_eq!(failed.raw, "raw two");
+    }
+
+    #[test]
+    fn compacts_to_new_database_with_hot_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let compact_path = dir.path().join("hot.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        let mut old = event("old", ParseStatus::Parsed);
+        old.ingest_time = Utc.timestamp_opt(1_778_808_000, 0).unwrap();
+        let mut middle = event("middle", ParseStatus::Parsed);
+        middle.ingest_time = Utc.timestamp_opt(1_778_808_001, 0).unwrap();
+        let mut new = event("new", ParseStatus::Parsed);
+        new.ingest_time = Utc.timestamp_opt(1_778_808_002, 0).unwrap();
+        store.insert_batch(&[old, middle, new]).unwrap();
+
+        let copied = store.compact_hot_to(&compact_path, 2, true).unwrap();
+        assert_eq!(copied, 2);
+
+        let compact = DuckDbStore::open(&compact_path).unwrap();
+        let rows = compact.query_recent(10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|row| row.event_id == "new"));
+        assert!(rows.iter().any(|row| row.event_id == "middle"));
+        assert!(!rows.iter().any(|row| row.event_id == "old"));
+    }
+
+    #[test]
+    fn compacts_to_new_database_with_limit_without_sorting() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let compact_path = dir.path().join("limited.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        store
+            .insert_batch(&[
+                event("one", ParseStatus::Parsed),
+                event("two", ParseStatus::Parsed),
+                event("three", ParseStatus::Failed),
+            ])
+            .unwrap();
+
+        let copied = store.compact_limit_to(&compact_path, 2, true).unwrap();
+        assert_eq!(copied, 2);
+
+        let compact = DuckDbStore::open(&compact_path).unwrap();
+        let rows = compact.query_recent(10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.raw.is_empty()));
     }
 }

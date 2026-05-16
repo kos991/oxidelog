@@ -26,6 +26,12 @@ struct Args {
     compact_output: Option<PathBuf>,
     #[arg(long)]
     drop_parsed_raw: bool,
+    #[arg(long)]
+    hot_limit: Option<usize>,
+    #[arg(long)]
+    fast_hot_limit: Option<usize>,
+    #[arg(long)]
+    archive_parquet: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -34,11 +40,29 @@ fn main() -> Result<()> {
     let store = DuckDbStore::open(&args.duckdb)?;
 
     if let Some(output) = args.compact_output {
-        let rows = store.compact_to(&output, args.drop_parsed_raw)?;
+        if let Some(parquet) = args.archive_parquet.as_ref() {
+            let stats = store.event_stats()?;
+            let archive = store.archive_parquet(parquet, stats.total as usize)?;
+            eprintln!(
+                "OxideLog parquet archive finished output={} rows={} bytes={}",
+                archive.path.display(),
+                stats.total,
+                archive.bytes
+            );
+        }
+        let rows = if let Some(limit) = args.fast_hot_limit {
+            store.compact_limit_to(&output, limit, args.drop_parsed_raw)?
+        } else if let Some(limit) = args.hot_limit {
+            store.compact_hot_to(&output, limit, args.drop_parsed_raw)?
+        } else {
+            store.compact_to(&output, args.drop_parsed_raw)?
+        };
         eprintln!(
-            "OxideLog compact finished output={} rows={} drop_parsed_raw={} elapsed={:.1}s",
+            "OxideLog compact finished output={} rows={} hot_limit={:?} fast_hot_limit={:?} drop_parsed_raw={} elapsed={:.1}s",
             output.display(),
             rows,
+            args.hot_limit,
+            args.fast_hot_limit,
             args.drop_parsed_raw,
             started.elapsed().as_secs_f64()
         );
