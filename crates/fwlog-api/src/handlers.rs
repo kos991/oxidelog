@@ -234,12 +234,17 @@ fn search_cold_archives(
     query: ColdSearchQuery,
     limit: usize,
 ) -> anyhow::Result<ColdSearchResponse> {
-    let archives = cold_archive_files(frozen_dir, query.day.as_deref())?;
+    let day_filter = query.day.as_deref().and_then(normalize_day_filter);
+    let archives = cold_archive_files(frozen_dir, day_filter.as_deref())?;
     let mut scanned_lines = 0_u64;
     let mut events = Vec::new();
     let adapter = SangforAdapter;
 
     for archive_path in &archives {
+        let archive_day_matches = archive_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| day_filter.as_deref().is_none_or(|day| name.contains(day)));
         let file = File::open(archive_path)
             .with_context(|| format!("open cold archive {}", archive_path.display()))?;
         let decoder = zstd::stream::read::Decoder::new(file)
@@ -251,6 +256,9 @@ fn search_cold_archives(
                 continue;
             }
             let entry_path = entry.path()?.to_string_lossy().into_owned();
+            if !archive_day_matches && !cold_entry_day_matches(&entry_path, day_filter.as_deref()) {
+                continue;
+            }
             let source_addr = format!("frozen://{entry_path}");
             let mut reader: Box<dyn BufRead> = if entry_path.ends_with(".gz") {
                 Box::new(BufReader::new(flate2::read::GzDecoder::new(entry)))
@@ -358,11 +366,27 @@ fn collect_cold_archive_files(
         }
         let name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
         let day_matches = day.is_none_or(|value| name.contains(value));
-        if name.starts_with("raw-import-") && name.ends_with(".tar.zst") && day_matches {
+        if name.starts_with("raw-import-") && name.ends_with(".tar.zst") && (day_matches || day.is_some()) {
             files.push(path);
         }
     }
     Ok(())
+}
+
+fn normalize_day_filter(day: &str) -> Option<String> {
+    let digits: String = day.chars().filter(|value| value.is_ascii_digit()).collect();
+    if digits.len() == 8 {
+        Some(digits)
+    } else {
+        None
+    }
+}
+
+fn cold_entry_day_matches(entry_path: &str, day: Option<&str>) -> bool {
+    day.is_none_or(|value| {
+        entry_path.contains(value)
+            || entry_path.contains(&format!("{}-{}-{}", &value[0..4], &value[4..6], &value[6..8]))
+    })
 }
 
 fn matches_cold_query(event: &CanonicalEvent, query: &ColdSearchQuery) -> bool {
@@ -750,6 +774,49 @@ mod tests {
                 .unwrap();
         assert_eq!(body["matched"], 1);
         assert_eq!(body["events"][0]["protocol"], "UDP");
+    }
+
+    #[tokio::test]
+    async fn cold_search_day_matches_tar_member_name_not_only_archive_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        std::fs::create_dir_all(&frozen_dir).unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(
+            &mut gz,
+            b"Sangfor: src=10.10.10.1 dst=10.4.90.205 sport=21527 dport=2048 proto=UDP action=snat severity=info\n",
+        )
+        .unwrap();
+        write_raw_import_tar_zst_member(
+            &frozen_dir.join("raw-import-20260516-full.tar.zst"),
+            "sangfor_fw_log/10.10.10.1_2026-04-24.log-20260425.gz",
+            &gz.finish().unwrap(),
+        );
+
+        let app = crate::router(db_path, parquet_dir, frozen_dir);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/cold/search?day=2026-04-25&limit=5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["files"], 1);
+        assert_eq!(body["scanned_lines"], 1);
+        assert_eq!(body["matched"], 1);
+        assert!(body["events"][0]["source_addr"]
+            .as_str()
+            .unwrap()
+            .contains("20260425"));
     }
 
     #[tokio::test]
