@@ -30,6 +30,30 @@ sudo systemctl status oxidelog.service --no-pager
 sudo journalctl -u oxidelog.service -f
 ```
 
+Run a one-click production smoke verification against the deployed API:
+
+```powershell
+.\scripts\smoke-production.ps1
+```
+
+```bash
+bash scripts/smoke-production.sh
+```
+
+The production smoke defaults to API `http://192.168.0.142:18080` and TCP ingest `192.168.0.142:1514`. It checks `/api/health`, `/api/system/status`, sample TCP ingest, `/api/events`, CSV export, Parquet archive/list, and Frozen archive/list/restore. JSON, CSV, and ingested sample artifacts are written under `smoke-production-output/<timestamp>/`.
+
+Override targets or skip TCP ingest when needed:
+
+```powershell
+.\scripts\smoke-production.ps1 -ApiHost 10.0.0.12 -ApiPort 18080 -TcpHost 10.0.0.12 -TcpPort 1514
+.\scripts\smoke-production.ps1 -NoIngest
+```
+
+```bash
+bash scripts/smoke-production.sh --api-host 10.0.0.12 --api-port 18080 --tcp-host 10.0.0.12 --tcp-port 1514
+bash scripts/smoke-production.sh --no-ingest
+```
+
 Uninstall the service, installed binary, and installed config while keeping `/var/lib/oxidelog` data intact:
 
 ```bash

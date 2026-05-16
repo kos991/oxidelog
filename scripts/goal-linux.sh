@@ -128,6 +128,18 @@ if [ "$status_service" != "fwlogd" ]; then
   echo "unexpected system status service: $status_service" >&2
   exit 1
 fi
+status_counts=$(python3 - <<'PY'
+import json
+with open("data/export/system-status.json", "r", encoding="utf-8") as f:
+    status = json.load(f)
+print(status.get("events_total", 0), status.get("events_parsed", 0), status.get("events_failed", 0))
+PY
+)
+read -r status_total status_parsed status_failed <<<"$status_counts"
+if [ "$status_total" -lt "$ingested" ] || [ "$status_parsed" -lt "$parsed" ] || [ "$status_failed" -lt "$failed" ]; then
+  echo "unexpected system status event counts: total=$status_total parsed=$status_parsed failed=$status_failed" >&2
+  exit 1
+fi
 if [ "$archive_files" -lt 1 ]; then
   echo "expected at least one archive file, got $archive_files" >&2
   exit 1

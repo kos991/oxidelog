@@ -2,6 +2,7 @@
 .worktrees/
 target/
 data/
+smoke-production-output/
 *.log
 !samples/sangfor.log
 *.tmp

@@ -97,6 +97,9 @@ try {
     if ($status.service -ne "fwlogd") {
         throw "unexpected system status service: $($status.service)"
     }
+    if ($status.events_total -lt $ingested -or $status.events_parsed -lt $parsed -or $status.events_failed -lt $failed) {
+        throw "unexpected system status event counts: total=$($status.events_total) parsed=$($status.events_parsed) failed=$($status.events_failed)"
+    }
     if ($archiveCount -lt 1) {
         throw "expected at least one archive file, got $archiveCount"
     }

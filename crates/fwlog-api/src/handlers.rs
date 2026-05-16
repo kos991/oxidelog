@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context};
 use axum::{
     extract::{Extension, Query},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::ApiState;
+
+const APP_HTML: &str = include_str!("../../../web/index.html");
 
 #[derive(Debug, Deserialize)]
 pub struct LimitQuery {
@@ -61,6 +63,9 @@ struct SystemStatus {
     duckdb_path: PathBuf,
     parquet_dir: PathBuf,
     frozen_dir: PathBuf,
+    events_total: u64,
+    events_parsed: u64,
+    events_failed: u64,
     duckdb_bytes: u64,
     parquet_files: usize,
     parquet_bytes: u64,
@@ -70,6 +75,10 @@ struct SystemStatus {
 
 fn default_limit() -> usize {
     20
+}
+
+pub async fn app() -> Html<&'static str> {
+    Html(APP_HTML)
 }
 
 pub async fn health() -> Json<serde_json::Value> {
@@ -92,12 +101,21 @@ pub async fn system_status(Extension(state): Extension<ApiState>) -> Response {
         Ok(stats) => stats,
         Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     };
+    let event_stats = match DuckDbStore::open(&*state.duckdb_path)
+        .and_then(|store| store.event_stats())
+    {
+        Ok(stats) => stats,
+        Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+    };
 
     Json(SystemStatus {
         service: "fwlogd",
         duckdb_path: state.duckdb_path.as_ref().clone(),
         parquet_dir: state.parquet_dir.as_ref().clone(),
         frozen_dir: state.frozen_dir.as_ref().clone(),
+        events_total: event_stats.total,
+        events_parsed: event_stats.parsed,
+        events_failed: event_stats.failed,
         duckdb_bytes,
         parquet_files: parquet_files.0,
         parquet_bytes: parquet_files.1,
@@ -150,6 +168,26 @@ mod tests {
     };
     use fwlog_domain::{CanonicalEvent, ParseStatus, RawLog};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn root_serves_embedded_chinese_ui() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::router(
+            dir.path().join("oxidelog.duckdb"),
+            dir.path().join("parquet"),
+            dir.path().join("frozen"),
+        );
+
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("OxideLog"));
+        assert!(body.contains("安全运营中心"));
+    }
 
     #[tokio::test]
     async fn health_events_and_export_routes_work() {
@@ -351,13 +389,31 @@ mod tests {
         let nested_frozen_dir = frozen_dir.join("nested");
         std::fs::create_dir_all(&nested_parquet_dir).unwrap();
         std::fs::create_dir_all(&nested_frozen_dir).unwrap();
-        std::fs::write(&db_path, b"duckdb").unwrap();
         std::fs::write(parquet_dir.join("events-a.parquet"), b"root").unwrap();
         std::fs::write(nested_parquet_dir.join("events-b.parquet"), b"nested").unwrap();
         std::fs::write(parquet_dir.join("ignore.txt"), b"ignore").unwrap();
         std::fs::write(frozen_dir.join("frozen-a.raw.zst"), b"raw").unwrap();
         std::fs::write(nested_frozen_dir.join("frozen-b.raw.zst"), b"zstd").unwrap();
         std::fs::write(frozen_dir.join("ignore.zst"), b"ignore").unwrap();
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+        store
+            .insert_batch(&[
+                {
+                    let raw = RawLog::new("tcp://127.0.0.1:1514", "parsed raw");
+                    let mut event = CanonicalEvent::failed(raw, "bad");
+                    event.event_id = "status-parsed".to_string();
+                    event.parse_status = ParseStatus::Parsed;
+                    event.parse_error = None;
+                    event
+                },
+                {
+                    let raw = RawLog::new("tcp://127.0.0.1:1514", "failed raw");
+                    let mut event = CanonicalEvent::failed(raw, "bad");
+                    event.event_id = "status-failed".to_string();
+                    event
+                },
+            ])
+            .unwrap();
 
         let app = crate::router(db_path.clone(), parquet_dir.clone(), frozen_dir.clone());
 
@@ -378,7 +434,10 @@ mod tests {
         assert_eq!(status["duckdb_path"], db_path.to_str().unwrap());
         assert_eq!(status["parquet_dir"], parquet_dir.to_str().unwrap());
         assert_eq!(status["frozen_dir"], frozen_dir.to_str().unwrap());
-        assert_eq!(status["duckdb_bytes"], 6);
+        assert_eq!(status["events_total"], 2);
+        assert_eq!(status["events_parsed"], 1);
+        assert_eq!(status["events_failed"], 1);
+        assert!(status["duckdb_bytes"].as_u64().unwrap() > 0);
         assert_eq!(status["parquet_files"], 2);
         assert_eq!(status["parquet_bytes"], 10);
         assert_eq!(status["frozen_files"], 2);

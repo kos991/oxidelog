@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OxideLog 安全运营中心</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1115;
+      --surface: #111a20;
+      --surface-2: #162229;
+      --line: #263842;
+      --text: #d9e3e8;
+      --muted: #8fa0aa;
+      --accent: #29c7ad;
+      --good: #5ad685;
+      --warn: #f0ba4d;
+      --bad: #ee7078;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #0f171d;
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: 18px; letter-spacing: 0; }
+    h2 { margin-bottom: 8px; font-size: 14px; font-weight: 650; }
+    a, button {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 6px 10px;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    a:hover, button:hover { border-color: var(--accent); }
+    main {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) 1fr;
+      gap: 12px;
+      padding: 12px;
+    }
+    section {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      padding: 12px;
+    }
+    .brand, .toolbar, .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .brand span, .muted { color: var(--muted); }
+    .toolbar { justify-content: flex-end; flex-wrap: wrap; }
+    .stack { display: grid; gap: 12px; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .metric {
+      min-height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #0e151a;
+      padding: 8px;
+    }
+    .metric span { color: var(--muted); }
+    .metric strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--accent);
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warn);
+    }
+    .dot.ok { background: var(--good); }
+    .dot.fail { background: var(--bad); }
+    dl {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 6px 8px;
+      margin: 0;
+    }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .list {
+      display: grid;
+      gap: 6px;
+      max-height: 230px;
+      overflow: auto;
+      margin-top: 8px;
+    }
+    .file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #0e151a;
+      padding: 7px 8px;
+    }
+    .file span:first-child { overflow-wrap: anywhere; }
+    .file span:last-child { color: var(--muted); }
+    .table-wrap {
+      max-height: calc(100vh - 166px);
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    table { width: 100%; min-width: 980px; border-collapse: collapse; }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #10181e;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    td {
+      max-width: 380px;
+      overflow-wrap: anywhere;
+    }
+    .raw {
+      color: #c8d4da;
+      font: 12px/1.45 Consolas, "Courier New", monospace;
+    }
+    .error {
+      display: none;
+      border: 1px solid #6b2b33;
+      border-radius: 4px;
+      background: #3a171c;
+      color: #ffd1d5;
+      padding: 8px;
+    }
+    @media (max-width: 920px) {
+      header { align-items: flex-start; }
+      main, .split { grid-template-columns: 1fr; }
+      .brand { flex-direction: column; align-items: flex-start; gap: 2px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>OxideLog</h1>
+      <span>安全运营中心</span>
+      <span class="status"><i id="healthDot" class="dot"></i><b id="healthText">连接中</b></span>
+    </div>
+    <div class="toolbar">
+      <span id="updated" class="muted">未刷新</span>
+      <a href="/api/events/export.csv?limit=200" download>导出 CSV</a>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+  </header>
+  <main>
+    <div class="stack">
+      <section>
+        <h2>系统态势</h2>
+        <div class="metrics">
+          <div class="metric"><span>事件总数</span><strong id="eventsTotal">0</strong></div>
+          <div class="metric"><span>解析失败</span><strong id="eventsFailed">0</strong></div>
+          <div class="metric"><span>DuckDB</span><strong id="duckdbBytes">0 B</strong></div>
+          <div class="metric"><span>归档文件</span><strong id="archiveTotal">0</strong></div>
+        </div>
+      </section>
+      <section>
+        <h2>运行信息</h2>
+        <dl>
+          <dt>服务</dt><dd id="service">-</dd>
+          <dt>解析成功</dt><dd id="eventsParsed">-</dd>
+          <dt>数据库</dt><dd id="duckdbPath">-</dd>
+          <dt>Parquet</dt><dd id="parquetDir">-</dd>
+          <dt>冰冻目录</dt><dd id="frozenDir">-</dd>
+        </dl>
+      </section>
+      <section>
+        <h2>归档资产</h2>
+        <div class="split">
+          <div>
+            <p class="muted">Parquet 文件</p>
+            <div id="archiveFiles" class="list"></div>
+          </div>
+          <div>
+            <p class="muted">Zstd Raw 文件</p>
+            <div id="frozenFiles" class="list"></div>
+          </div>
+        </div>
+      </section>
+      <div id="error" class="error"></div>
+    </div>
+    <section>
+      <h2>最近事件</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>状态</th>
+              <th>源地址</th>
+              <th>目的地址</th>
+              <th>动作</th>
+              <th>原始日志</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody">
+            <tr><td colspan="6" class="muted">加载中</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const endpoints = {
+      health: "/api/health",
+      status: "/api/system/status",
+      events: "/api/events?limit=200",
+      archive: "/api/archive/files",
+      frozen: "/api/archive/frozen"
+    };
+
+    function value(input) {
+      if (input === null || input === undefined || input === "") return "-";
+      return String(input);
+    }
+
+    function bytes(input) {
+      const size = Number(input || 0);
+      if (size < 1024) return size + " B";
+      if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+      if (size < 1024 * 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + " MB";
+      return (size / 1024 / 1024 / 1024).toFixed(1) + " GB";
+    }
+
+    async function getJson(path) {
+      const response = await fetch(path, { headers: { "Accept": "application/json" } });
+      if (!response.ok) throw new Error(path + " 返回 " + response.status);
+      return response.json();
+    }
+
+    function setHealth(ok, text) {
+      $("healthDot").className = "dot " + (ok ? "ok" : "fail");
+      $("healthText").textContent = text;
+    }
+
+    function renderStatus(status) {
+      $("service").textContent = value(status.service);
+      $("eventsTotal").textContent = value(status.events_total || 0);
+      $("eventsParsed").textContent = value(status.events_parsed || 0);
+      $("eventsFailed").textContent = value(status.events_failed || 0);
+      $("duckdbBytes").textContent = bytes(status.duckdb_bytes);
+      $("archiveTotal").textContent = value((status.parquet_files || 0) + (status.frozen_files || 0));
+      $("duckdbPath").textContent = value(status.duckdb_path);
+      $("parquetDir").textContent = value(status.parquet_dir);
+      $("frozenDir").textContent = value(status.frozen_dir);
+    }
+
+    function emptyRow(text, cols) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = cols;
+      cell.className = "muted";
+      cell.textContent = text;
+      row.appendChild(cell);
+      return row;
+    }
+
+    function renderEvents(events) {
+      const rows = events.length ? events.map((event) => {
+        const row = document.createElement("tr");
+        [
+          event.ingest_time || event.event_time,
+          event.parse_status,
+          event.src_ip || event.source_addr,
+          event.dst_ip,
+          event.action,
+          event.raw
+        ].forEach((field, index) => {
+          const cell = document.createElement("td");
+          cell.textContent = value(field);
+          if (index === 5) cell.className = "raw";
+          row.appendChild(cell);
+        });
+        return row;
+      }) : [emptyRow("暂无事件", 6)];
+      $("eventsBody").replaceChildren(...rows);
+    }
+
+    function renderFiles(id, files) {
+      const items = files.length ? files.map((file) => {
+        const item = document.createElement("div");
+        item.className = "file";
+        const path = document.createElement("span");
+        const size = document.createElement("span");
+        path.textContent = value(file.path);
+        size.textContent = bytes(file.bytes);
+        item.append(path, size);
+        return item;
+      }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "暂无文件" })];
+      $(id).replaceChildren(...items);
+    }
+
+    async function refresh() {
+      $("error").style.display = "none";
+      try {
+        const [health, status, events, archiveFiles, frozenFiles] = await Promise.all([
+          getJson(endpoints.health),
+          getJson(endpoints.status),
+          getJson(endpoints.events),
+          getJson(endpoints.archive),
+          getJson(endpoints.frozen)
+        ]);
+        setHealth(health.status === "ok", health.status === "ok" ? "在线" : "异常");
+        renderStatus(status);
+        renderEvents(Array.isArray(events) ? events : []);
+        renderFiles("archiveFiles", Array.isArray(archiveFiles) ? archiveFiles : []);
+        renderFiles("frozenFiles", Array.isArray(frozenFiles) ? frozenFiles : []);
+        $("updated").textContent = "刷新 " + new Date().toLocaleTimeString("zh-CN");
+      } catch (error) {
+        setHealth(false, "离线");
+        $("error").textContent = "接口请求失败：" + error.message;
+        $("error").style.display = "block";
+      }
+    }
+
+    $("refresh").addEventListener("click", refresh);
+    refresh();
+    setInterval(refresh, 30000);
+  </script>
+</body>
+</html>

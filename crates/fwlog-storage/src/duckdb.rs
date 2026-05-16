@@ -10,6 +10,13 @@ pub struct DuckDbStore {
     conn: Connection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EventStats {
+    pub total: u64,
+    pub parsed: u64,
+    pub failed: u64,
+}
+
 impl DuckDbStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
@@ -97,6 +104,26 @@ impl DuckDbStore {
         let rows = stmt.query_map([limit as i64], row_to_event)?;
         rows.collect::<duckdb::Result<Vec<_>>>()
             .context("query duckdb events")
+    }
+
+    pub fn event_stats(&self) -> Result<EventStats> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN parse_status = 'parsed' THEN 1 ELSE 0 END) AS parsed,
+              SUM(CASE WHEN parse_status = 'failed' THEN 1 ELSE 0 END) AS failed
+            FROM events
+            "#,
+        )?;
+        let stats = stmt.query_row([], |row| {
+            Ok(EventStats {
+                total: row.get::<_, i64>(0)?.max(0) as u64,
+                parsed: row.get::<_, Option<i64>>(1)?.unwrap_or(0).max(0) as u64,
+                failed: row.get::<_, Option<i64>>(2)?.unwrap_or(0).max(0) as u64,
+            })
+        })?;
+        Ok(stats)
     }
 
     pub fn export_csv(&self, path: impl AsRef<Path>, limit: usize) -> Result<usize> {
@@ -247,5 +274,40 @@ mod tests {
         assert_eq!(archive.path, parquet_path);
         assert!(archive.path.exists());
         assert!(archive.bytes > 0);
+    }
+
+    #[test]
+    fn reports_event_stats_by_parse_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let mut store = DuckDbStore::open(&db_path).unwrap();
+
+        let empty = store.event_stats().unwrap();
+        assert_eq!(
+            empty,
+            EventStats {
+                total: 0,
+                parsed: 0,
+                failed: 0
+            }
+        );
+
+        store
+            .insert_batch(&[
+                event("one", ParseStatus::Parsed),
+                event("two", ParseStatus::Parsed),
+                event("three", ParseStatus::Failed),
+            ])
+            .unwrap();
+
+        let stats = store.event_stats().unwrap();
+        assert_eq!(
+            stats,
+            EventStats {
+                total: 3,
+                parsed: 2,
+                failed: 1
+            }
+        );
     }
 }
