@@ -2,14 +2,14 @@
 set -euo pipefail
 
 DUCKDB="${1:-/var/lib/oxidelog/duckdb/oxidelog.duckdb}"
-HOT_LIMIT="${2:-1000000}"
+HOT_LIMIT="${2:-100000}"
 SERVICE="${OXIDELOG_SERVICE:-oxidelog.service}"
 IMPORT_BIN="${OXIDELOG_IMPORT_BIN:-/opt/oxidelog/bin/fwlog-import}"
 RAW_INPUT="${OXIDELOG_RAW_INPUT:-/opt/sangfor_fw_log}"
 FROZEN_DIR="${OXIDELOG_FROZEN_DIR:-/var/lib/oxidelog/frozen}"
 PARQUET_DIR="${OXIDELOG_PARQUET_DIR:-/var/lib/oxidelog/parquet}"
 KEEP_BACKUP="${OXIDELOG_KEEP_BACKUP:-false}"
-SKIP_PARQUET="${OXIDELOG_SKIP_PARQUET:-false}"
+SKIP_PARQUET="${OXIDELOG_SKIP_PARQUET:-true}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 COMPACT="${DUCKDB%.duckdb}.compact-${STAMP}.duckdb"
 BACKUP="${DUCKDB%.duckdb}.backup-${STAMP}.duckdb"

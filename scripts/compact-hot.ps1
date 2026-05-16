@@ -3,7 +3,7 @@ param(
     [string] $User = "root",
     [string] $RemoteDir = "/opt/oxidelog-src",
     [string] $DuckDb = "/var/lib/oxidelog/duckdb/oxidelog.duckdb",
-    [int] $HotLimit = 1000000
+    [int] $HotLimit = 100000
 )
 
 $ErrorActionPreference = "Stop"

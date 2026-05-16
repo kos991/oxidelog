@@ -60,7 +60,7 @@ Compact the hot DuckDB file after a bulk historical import:
 .\scripts\compact-hot.ps1
 ```
 
-By default this archives slim structured fields to Parquet, keeps the latest 1,000,000 rows in DuckDB for UI/API hot queries, moves the raw import directory into a Zstd tar archive under frozen storage, and drops raw text from parsed hot rows so the query database stays small.
+By default this keeps the latest 100,000 rows in DuckDB for UI/API hot queries, moves the raw import directory into a Zstd tar archive under frozen storage, and skips full Parquet generation to keep disk usage low. Set `OXIDELOG_SKIP_PARQUET=false` when you explicitly need a slim structured Parquet copy.
 
 If `[auth].api_token` is set in the server config, or `OXIDELOG_API_TOKEN` is set in `/etc/oxidelog/oxidelog.env`, pass the same token with `-ApiToken`, `--api-token`, or the `OXIDELOG_API_TOKEN` environment variable. The token is sent as `Authorization: Bearer <token>` and is not printed by the smoke scripts.
 
