@@ -411,7 +411,7 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("OxideLog"));
-        assert!(body.contains("安全运营中心"));
+        assert!(body.contains("日志中心"));
     }
 
     #[tokio::test]

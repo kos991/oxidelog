@@ -3,24 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OxideLog 安全运营中心</title>
+  <title>OxideLog 日志中心</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0a0f12;
-      --surface: #10171b;
-      --surface-2: #151f24;
-      --surface-3: #0c1317;
-      --line: #26343b;
-      --line-soft: #1d2a30;
-      --text: #e1e8ec;
-      --muted: #8ea0aa;
-      --accent: #22c7a9;
-      --cyan: #6bd3ff;
-      --green: #54d681;
-      --amber: #f1b84b;
+      --bg: #0d1117;
+      --header: #151b23;
+      --side: #111820;
+      --panel: #161d26;
+      --panel-2: #1b2530;
+      --input: #0c1218;
+      --line: #2b3846;
+      --line-soft: #22303d;
+      --text: #dbe4ec;
+      --muted: #91a2b2;
+      --accent: #2f81f7;
+      --accent-2: #25c2a0;
+      --green: #58d68d;
       --red: #ff6b7d;
-      --violet: #a78bfa;
+      --amber: #f0b44c;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
@@ -30,7 +31,7 @@
       overflow: hidden;
       background: var(--bg);
       color: var(--text);
-      font: 13px/1.42 "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+      font: 13px/1.45 "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
       letter-spacing: 0;
     }
     button, input, select { font: inherit; letter-spacing: 0; }
@@ -38,64 +39,90 @@
       min-height: 32px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: var(--surface-2);
+      background: var(--panel-2);
       color: var(--text);
-      padding: 6px 10px;
+      padding: 6px 11px;
       cursor: pointer;
       white-space: nowrap;
     }
-    button:hover { border-color: var(--accent); color: #f8ffff; }
-    button.primary { background: #0f3d36; border-color: #1c7567; color: #ccfff4; }
+    button:hover { border-color: var(--accent); color: #fff; }
+    button.primary { background: #123d73; border-color: #286bb5; color: #eaf4ff; }
     input, select {
       width: 100%;
       min-height: 32px;
       border: 1px solid var(--line);
       border-radius: 4px;
-      background: #081014;
+      background: var(--input);
       color: var(--text);
       padding: 6px 9px;
       outline: none;
     }
     input:focus, select:focus { border-color: var(--accent); }
-    h1, h2, h3, p { margin: 0; }
+    h1, h2, p { margin: 0; }
     h1 { font-size: 18px; line-height: 1.2; }
     h2 { font-size: 14px; }
-    h3 { font-size: 13px; }
     .app {
       height: 100%;
       display: grid;
-      grid-template-columns: 236px minmax(0, 1fr);
+      grid-template-rows: 54px minmax(0, 1fr);
+    }
+    .topbar {
+      min-width: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--header);
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .logo {
+      width: 30px;
+      height: 30px;
+      border-radius: 5px;
+      border: 1px solid #2f81f7;
+      background: #102847;
+      color: #8fc7ff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+    .brand small, .muted { color: var(--muted); }
+    .global-search {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .global-search input { max-width: 520px; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .shell {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
     }
     .sidebar {
       min-width: 0;
       border-right: 1px solid var(--line);
-      background: #0d1418;
+      background: var(--side);
       display: flex;
       flex-direction: column;
     }
-    .brand {
-      height: 58px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .logo {
-      width: 32px;
-      height: 32px;
-      border: 1px solid #237465;
-      border-radius: 5px;
-      background: #102f2b;
-      display: grid;
-      place-items: center;
-      color: var(--accent);
-      font-weight: 800;
-    }
-    .brand small, .muted { color: var(--muted); }
     .nav {
       display: grid;
-      gap: 3px;
+      gap: 2px;
       padding: 10px;
     }
     .nav button {
@@ -112,22 +139,22 @@
     }
     .nav button.active {
       border-color: var(--line);
-      background: var(--surface-2);
-      color: var(--accent);
+      background: var(--panel);
+      color: #d9ecff;
     }
     .nav-icon { text-align: center; font-size: 15px; }
-    .side-block {
+    .side-section {
       margin: 0 10px 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--line-soft);
       border-radius: 5px;
-      background: var(--surface-3);
+      background: #0d141b;
       padding: 10px;
       display: grid;
       gap: 8px;
     }
     .side-kv {
       display: grid;
-      grid-template-columns: 72px minmax(0, 1fr);
+      grid-template-columns: 68px minmax(0, 1fr);
       gap: 6px 8px;
     }
     .side-kv span:nth-child(odd) { color: var(--muted); }
@@ -145,9 +172,9 @@
       justify-content: space-between;
       gap: 10px;
       padding: 8px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #081014;
+      background: #0d141b;
     }
     .dot {
       display: inline-block;
@@ -163,31 +190,24 @@
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: 58px minmax(0, 1fr);
+      grid-template-rows: 44px minmax(0, 1fr);
     }
-    .topbar {
+    .pagebar {
       min-width: 0;
-      padding: 10px 14px;
       border-bottom: 1px solid var(--line);
-      background: var(--surface);
+      background: #101720;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      padding: 0 12px;
     }
-    .title-block {
+    .pagebar-title {
       min-width: 0;
-      display: grid;
-      gap: 2px;
-    }
-    .toolbar {
       display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 10px;
     }
-    .toolbar input { width: 190px; }
     .content {
       min-width: 0;
       min-height: 0;
@@ -198,20 +218,19 @@
     .page.active { display: block; }
     .grid { display: grid; gap: 10px; }
     .dashboard-grid {
-      grid-template-columns: minmax(320px, 410px) minmax(0, 1fr);
+      grid-template-columns: minmax(330px, 410px) minmax(0, 1fr);
       align-items: start;
     }
-    .split-grid {
-      grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.25fr);
+    .ops-grid {
+      grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.2fr);
       align-items: start;
     }
     .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .wide-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     .panel {
       min-width: 0;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--surface);
+      border-radius: 5px;
+      background: var(--panel);
       padding: 10px;
     }
     .panel-head {
@@ -227,7 +246,7 @@
       min-height: 62px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #0b1216;
+      background: #101720;
       padding: 8px;
     }
     .metric span {
@@ -237,17 +256,14 @@
     .metric strong {
       display: block;
       margin-top: 4px;
-      color: var(--accent);
+      color: #79c0ff;
       font-size: 19px;
       line-height: 1.15;
       overflow-wrap: anywhere;
     }
-    .metric strong.small { font-size: 15px; }
     .good { color: var(--green) !important; }
     .bad { color: var(--red) !important; }
-    .warn { color: var(--amber) !important; }
-    .blue { color: var(--cyan) !important; }
-    .violet { color: var(--violet) !important; }
+    .blue { color: #79c0ff !important; }
     dl {
       display: grid;
       grid-template-columns: 86px minmax(0, 1fr);
@@ -269,14 +285,14 @@
       padding: 7px 8px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #0b1216;
+      background: #101720;
     }
     .status-row b { text-align: right; overflow-wrap: anywhere; }
     .bar {
       height: 6px;
       border-radius: 999px;
       overflow: hidden;
-      background: #1b292f;
+      background: #243443;
     }
     .bar i {
       display: block;
@@ -284,14 +300,20 @@
       width: 0;
       background: var(--accent);
     }
-    .bar.warn i { background: var(--amber); }
     .bar.bad i { background: var(--red); }
-    .table-tools {
+    .bar.warn i { background: var(--amber); }
+    .search-panel {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--panel);
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .table-tools, .search-form {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
       gap: 8px;
       align-items: end;
-      margin-bottom: 8px;
     }
     .table-tools label, .search-form label {
       display: grid;
@@ -300,13 +322,13 @@
       font-size: 12px;
     }
     .table-wrap {
-      max-height: calc(100vh - 160px);
+      max-height: calc(100vh - 170px);
       overflow: auto;
       border: 1px solid var(--line);
-      border-radius: 4px;
+      border-radius: 5px;
+      background: var(--panel);
     }
-    .table-wrap.compact { max-height: calc(100vh - 128px); }
-    .table-wrap.mid { max-height: calc(100vh - 224px); }
+    .table-wrap.compact { max-height: calc(100vh - 184px); }
     table {
       width: 100%;
       min-width: 1080px;
@@ -322,13 +344,13 @@
       position: sticky;
       top: 0;
       z-index: 1;
-      background: #111b20;
-      color: #a6b7c0;
+      background: #1a2430;
+      color: #a9b8c6;
       font-weight: 650;
     }
-    tbody tr:hover { background: #111d22; }
+    tbody tr:hover { background: #1a2530; }
     td {
-      max-width: 430px;
+      max-width: 440px;
       overflow-wrap: anywhere;
     }
     .mono {
@@ -336,7 +358,7 @@
       font-size: 12px;
     }
     .raw {
-      color: #ced9de;
+      color: #cbd6df;
       line-height: 1.45;
     }
     .badge {
@@ -347,22 +369,22 @@
       border-radius: 3px;
       padding: 2px 7px;
       border: 1px solid var(--line);
-      background: #0b151a;
+      background: #111922;
       color: var(--muted);
       font-size: 12px;
     }
     .badge.ok {
-      border-color: #217049;
-      background: #0c2619;
+      border-color: #2d7d4f;
+      background: #10271a;
       color: var(--green);
     }
     .badge.fail {
-      border-color: #833040;
-      background: #2a1118;
+      border-color: #883646;
+      background: #2b151b;
       color: var(--red);
     }
     .files {
-      max-height: 252px;
+      max-height: 250px;
       overflow: auto;
       display: grid;
       gap: 6px;
@@ -374,28 +396,22 @@
       padding: 7px 8px;
       border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: #0b1216;
+      background: #101720;
     }
     .file span:first-child { overflow-wrap: anywhere; }
-    .search-form {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
-      gap: 8px;
-      align-items: end;
-    }
     .notice {
-      border: 1px solid #38505a;
+      border: 1px solid #35536d;
       border-radius: 4px;
-      background: #0b1418;
+      background: #101820;
       padding: 8px 10px;
       color: #b9c8cf;
     }
     .error {
       display: none;
       margin-bottom: 10px;
-      border: 1px solid #833040;
+      border: 1px solid #883646;
       border-radius: 4px;
-      background: #2a1118;
+      background: #2b151b;
       color: #ffd5db;
       padding: 9px;
       white-space: pre-wrap;
@@ -406,150 +422,155 @@
     }
     @media (max-width: 1180px) {
       body { overflow: auto; }
-      .app { grid-template-columns: 1fr; height: auto; min-height: 100%; }
-      .sidebar { position: static; }
+      .app { height: auto; min-height: 100%; }
+      .topbar { grid-template-columns: 1fr; height: auto; padding: 10px; align-items: start; }
+      .shell { grid-template-columns: 1fr; }
       .nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .main { min-height: 0; }
-      .dashboard-grid, .split-grid, .wide-metrics, .table-tools, .search-form { grid-template-columns: 1fr 1fr; }
+      .dashboard-grid, .ops-grid, .table-tools, .search-form { grid-template-columns: 1fr 1fr; }
       .toolbar { justify-content: flex-start; }
     }
     @media (max-width: 720px) {
-      .topbar { align-items: flex-start; flex-direction: column; }
       .nav { grid-template-columns: 1fr 1fr; }
-      .dashboard-grid, .split-grid, .metrics, .wide-metrics, .table-tools, .search-form { grid-template-columns: 1fr; }
-      .toolbar input { width: 100%; }
+      .dashboard-grid, .ops-grid, .metrics, .table-tools, .search-form { grid-template-columns: 1fr; }
+      .global-search, .toolbar, .pagebar { align-items: stretch; flex-direction: column; }
       table { min-width: 920px; }
     }
   </style>
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <header class="topbar">
       <div class="brand">
         <div class="logo">OL</div>
         <div>
           <h1>OxideLog</h1>
-          <small>安全运营中心</small>
+          <small>本地防火墙日志中心</small>
         </div>
       </div>
-      <nav class="nav" aria-label="主导航">
-        <button class="active" data-page="dashboard" title="态势总览"><span class="nav-icon">▦</span><span>态势总览</span></button>
-        <button data-page="events" title="日志检索"><span class="nav-icon">≡</span><span>日志检索</span></button>
-        <button data-page="cold" title="历史追溯"><span class="nav-icon">◎</span><span>历史追溯</span></button>
-        <button data-page="ops" title="运行维护"><span class="nav-icon">⚙</span><span>运行维护</span></button>
-      </nav>
-      <div class="side-block">
-        <h2>核心指标</h2>
-        <div class="side-kv">
-          <span>总事件</span><span id="sideTotal">0</span>
-          <span>成功率</span><span id="sideRate">0%</span>
-          <span>热库</span><span id="sideDuckdb">0 B</span>
-          <span>冰冻库</span><span id="sideFrozen">0 B</span>
-        </div>
+      <div class="global-search">
+        <input id="quickFilter" type="search" placeholder="快速过滤：IP / 端口 / 协议 / NAT 关键字">
+        <span id="updated" class="muted">尚未刷新</span>
       </div>
-      <div class="side-block">
-        <h2>部署路径</h2>
-        <div class="side-kv">
-          <span>服务</span><span id="serviceName">fwlogd</span>
-          <span>DuckDB</span><span id="sideDuckdbPath">-</span>
-          <span>Frozen</span><span id="sideFrozenDir">-</span>
-        </div>
-      </div>
-      <div class="sidebar-footer">
-        <div class="health">
-          <span><i id="healthDot" class="dot"></i><b id="healthText">连接中</b></span>
-          <span id="authState" class="muted">认证检测</span>
-        </div>
+      <div class="toolbar">
         <input id="apiToken" type="password" autocomplete="off" placeholder="API Token">
+        <button id="exportCsv" type="button">导出 CSV</button>
+        <button id="refresh" class="primary" type="button">刷新</button>
       </div>
-    </aside>
+    </header>
 
-    <main class="main">
-      <header class="topbar">
-        <div class="title-block">
-          <h1 id="pageTitle">态势总览</h1>
-          <span id="updated" class="muted">尚未刷新</span>
-        </div>
-        <div class="toolbar">
-          <input id="quickFilter" type="search" placeholder="本页快速过滤 IP / 端口 / NAT">
-          <button id="exportCsv" type="button">导出 CSV</button>
-          <button id="refresh" class="primary" type="button">刷新</button>
-        </div>
-      </header>
-
-      <div class="content">
-        <div id="error" class="error"></div>
-
-        <section id="page-dashboard" class="page active">
-          <div class="grid dashboard-grid">
-            <div class="grid">
-              <div class="panel">
-                <div class="panel-head"><h2>系统态势</h2><span class="muted">实时 API</span></div>
-                <div class="grid metrics">
-                  <div class="metric"><span>事件总数</span><strong id="eventsTotal">0</strong></div>
-                  <div class="metric"><span>解析成功</span><strong id="eventsParsed" class="good">0</strong></div>
-                  <div class="metric"><span>解析失败</span><strong id="eventsFailed" class="bad">0</strong></div>
-                  <div class="metric"><span>成功率</span><strong id="parseRate" class="blue">0%</strong></div>
-                </div>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h2>存储水位</h2><span id="archiveTotal" class="muted">0 个文件</span></div>
-                <div class="grid metrics">
-                  <div class="metric"><span>DuckDB 热库</span><strong id="duckdbBytes">0 B</strong></div>
-                  <div class="metric"><span>Parquet 冷库</span><strong id="parquetBytes">0 B</strong></div>
-                  <div class="metric"><span>Frozen 原始归档</span><strong id="frozenBytes">0 B</strong></div>
-                  <div class="metric"><span>Worker 错误</span><strong id="workerErrors" class="bad">0</strong></div>
-                </div>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h2>接入与背压</h2><span class="muted">进程内计数</span></div>
-                <div class="status-list">
-                  <div class="status-row"><span>TCP 收入</span><div class="bar"><i id="tcpBar"></i></div><b id="tcpReceived">0</b></div>
-                  <div class="status-row"><span>UDP 收入</span><div class="bar"><i id="udpBar"></i></div><b id="udpReceived">0</b></div>
-                  <div class="status-row"><span>UDP 丢弃</span><div class="bar bad"><i id="dropBar"></i></div><b id="udpDropped">0</b></div>
-                  <div class="status-row"><span>落库批次</span><div class="bar warn"><i id="batchBar"></i></div><b id="batchesStored">0</b></div>
-                </div>
-              </div>
-            </div>
-            <div class="panel">
-              <div class="panel-head">
-                <h2>最近事件</h2>
-                <button data-page-target="events" type="button">打开检索</button>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>接收时间</th>
-                      <th>状态</th>
-                      <th>源地址</th>
-                      <th>目的地址</th>
-                      <th>协议</th>
-                      <th>动作</th>
-                      <th>原始日志</th>
-                    </tr>
-                  </thead>
-                  <tbody id="dashboardEvents"><tr><td colspan="7" class="empty">加载中</td></tr></tbody>
-                </table>
-              </div>
-            </div>
+    <div class="shell">
+      <aside class="sidebar">
+        <nav class="nav" aria-label="主导航">
+          <button data-page="dashboard" title="概览"><span class="nav-icon">▦</span><span>概览</span></button>
+          <button class="active" data-page="events" title="日志检索"><span class="nav-icon">≡</span><span>日志检索</span></button>
+          <button data-page="cold" title="历史追溯"><span class="nav-icon">◎</span><span>历史追溯</span></button>
+          <button data-page="ops" title="运行维护"><span class="nav-icon">⚙</span><span>运行维护</span></button>
+        </nav>
+        <div class="side-section">
+          <h2>运行状态</h2>
+          <div class="health">
+            <span><i id="healthDot" class="dot"></i><b id="healthText">连接中</b></span>
+            <span id="authState" class="muted">认证检测</span>
           </div>
-        </section>
+        </div>
+        <div class="side-section">
+          <h2>核心指标</h2>
+          <div class="side-kv">
+            <span>总事件</span><span id="sideTotal">0</span>
+            <span>成功率</span><span id="sideRate">0%</span>
+            <span>热库</span><span id="sideDuckdb">0 B</span>
+            <span>冰冻库</span><span id="sideFrozen">0 B</span>
+          </div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="side-kv">
+            <span>服务</span><span id="serviceName">fwlogd</span>
+            <span>DuckDB</span><span id="sideDuckdbPath">-</span>
+            <span>Frozen</span><span id="sideFrozenDir">-</span>
+          </div>
+        </div>
+      </aside>
 
-        <section id="page-events" class="page">
-          <div class="panel">
-            <div class="panel-head">
-              <h2>热库日志检索</h2>
-              <span id="eventSummary" class="muted">最近 200 条，来自 DuckDB 热库</span>
+      <main class="main">
+        <div class="pagebar">
+          <div class="pagebar-title">
+            <h1 id="pageTitle">日志检索</h1>
+            <span id="pageSubTitle" class="muted">最近 200 条，来自 DuckDB 热库</span>
+          </div>
+          <span id="serviceBanner" class="muted">fwlogd</span>
+        </div>
+
+        <div class="content">
+          <div id="error" class="error"></div>
+
+          <section id="page-dashboard" class="page">
+            <div class="grid dashboard-grid">
+              <div class="grid">
+                <div class="panel">
+                  <div class="panel-head"><h2>系统态势</h2><span class="muted">实时 API</span></div>
+                  <div class="grid metrics">
+                    <div class="metric"><span>事件总数</span><strong id="eventsTotal">0</strong></div>
+                    <div class="metric"><span>解析成功</span><strong id="eventsParsed" class="good">0</strong></div>
+                    <div class="metric"><span>解析失败</span><strong id="eventsFailed" class="bad">0</strong></div>
+                    <div class="metric"><span>成功率</span><strong id="parseRate" class="blue">0%</strong></div>
+                  </div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head"><h2>存储水位</h2><span id="archiveTotal" class="muted">0 个文件</span></div>
+                  <div class="grid metrics">
+                    <div class="metric"><span>DuckDB 热库</span><strong id="duckdbBytes">0 B</strong></div>
+                    <div class="metric"><span>Parquet 冷库</span><strong id="parquetBytes">0 B</strong></div>
+                    <div class="metric"><span>Frozen 原始归档</span><strong id="frozenBytes">0 B</strong></div>
+                    <div class="metric"><span>Worker 错误</span><strong id="workerErrors" class="bad">0</strong></div>
+                  </div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head"><h2>接入与背压</h2><span class="muted">进程内计数</span></div>
+                  <div class="status-list">
+                    <div class="status-row"><span>TCP 收入</span><div class="bar"><i id="tcpBar"></i></div><b id="tcpReceived">0</b></div>
+                    <div class="status-row"><span>UDP 收入</span><div class="bar"><i id="udpBar"></i></div><b id="udpReceived">0</b></div>
+                    <div class="status-row"><span>UDP 丢弃</span><div class="bar bad"><i id="dropBar"></i></div><b id="udpDropped">0</b></div>
+                    <div class="status-row"><span>落库批次</span><div class="bar warn"><i id="batchBar"></i></div><b id="batchesStored">0</b></div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head">
+                  <h2>最近事件</h2>
+                  <button data-page-target="events" type="button">打开检索</button>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>接收时间</th>
+                        <th>状态</th>
+                        <th>源地址</th>
+                        <th>目的地址</th>
+                        <th>协议</th>
+                        <th>动作</th>
+                        <th>原始日志</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dashboardEvents"><tr><td colspan="7" class="empty">加载中</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div class="table-tools">
-              <label>源 IP<input id="filterSrc" type="text" placeholder="2.55.80.6"></label>
-              <label>目的 IP<input id="filterDst" type="text" placeholder="211.93.49.88"></label>
-              <label>协议<input id="filterProtocol" type="text" placeholder="UDP"></label>
-              <label>动作<input id="filterAction" type="text" placeholder="snat"></label>
-              <label>状态<select id="filterStatus"><option value="">全部</option><option value="parsed">parsed</option><option value="failed">failed</option></select></label>
-              <label>关键字<input id="filterKeyword" type="text" placeholder="NAT类型 / 端口"></label>
-              <button id="clearFilters" type="button">清空</button>
+          </section>
+
+          <section id="page-events" class="page active">
+            <div class="search-panel">
+              <div class="table-tools">
+                <label>源 IP<input id="filterSrc" type="text" placeholder="2.55.80.6"></label>
+                <label>目的 IP<input id="filterDst" type="text" placeholder="211.93.49.88"></label>
+                <label>协议<input id="filterProtocol" type="text" placeholder="UDP"></label>
+                <label>动作<input id="filterAction" type="text" placeholder="snat"></label>
+                <label>状态<select id="filterStatus"><option value="">全部</option><option value="parsed">parsed</option><option value="failed">failed</option></select></label>
+                <label>关键字<input id="filterKeyword" type="text" placeholder="NAT类型 / 端口"></label>
+                <button id="clearFilters" type="button">清空</button>
+              </div>
             </div>
             <div class="table-wrap compact">
               <table>
@@ -569,98 +590,104 @@
                 <tbody id="eventsBody"><tr><td colspan="9" class="empty">加载中</td></tr></tbody>
               </table>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section id="page-cold" class="page">
-          <div class="grid">
-            <div class="panel">
-              <div class="panel-head">
-                <h2>Frozen 历史追溯</h2>
-                <span id="coldStatus" class="muted">不解压落盘，直接流式扫描 raw-import-*.tar.zst</span>
-              </div>
-              <div class="search-form">
-                <label>日期<input id="coldDay" type="text" placeholder="20260516"></label>
-                <label>源 IP<input id="coldSrcIp" type="text" placeholder="2.55.80.6"></label>
-                <label>目的 IP<input id="coldDstIp" type="text" placeholder="211.93.49.88"></label>
-                <label>动作<input id="coldAction" type="text" placeholder="snat"></label>
-                <label>关键字<input id="coldKeyword" type="text" placeholder="NAT类型"></label>
-                <label>包含失败<select id="coldIncludeFailed"><option value="">否</option><option value="1">是</option></select></label>
-                <button id="coldSearch" class="primary" type="button">开始追溯</button>
-              </div>
-            </div>
-            <div class="panel">
-              <div class="panel-head"><h2>追溯结果</h2><span id="coldSummary" class="muted">等待查询</span></div>
-              <div class="table-wrap compact">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>接收时间</th>
-                      <th>状态</th>
-                      <th>源地址</th>
-                      <th>目的地址</th>
-                      <th>协议</th>
-                      <th>动作</th>
-                      <th>原始日志</th>
-                    </tr>
-                  </thead>
-                  <tbody id="coldBody"><tr><td colspan="7" class="empty">暂无结果</td></tr></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="page-ops" class="page">
-          <div class="grid split-grid">
+          <section id="page-cold" class="page">
             <div class="grid">
-              <div class="panel">
-                <div class="panel-head"><h2>运行信息</h2><span class="muted">本机部署</span></div>
-                <dl>
-                  <dt>服务</dt><dd id="service">-</dd>
-                  <dt>认证</dt><dd id="authEnabled">-</dd>
-                  <dt>数据库</dt><dd id="duckdbPath">-</dd>
-                  <dt>Parquet</dt><dd id="parquetDir">-</dd>
-                  <dt>Frozen</dt><dd id="frozenDir">-</dd>
-                  <dt>Spool 写入</dt><dd id="spoolWritten">-</dd>
-                  <dt>已落库</dt><dd id="eventsStored">-</dd>
-                </dl>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h2>归档资产</h2><span class="muted">物理文件清单</span></div>
-                <div class="grid metrics">
-                  <div class="metric"><span>Parquet 文件</span><strong id="parquetFiles">0</strong></div>
-                  <div class="metric"><span>Frozen 文件</span><strong id="frozenFiles">0</strong></div>
-                  <div class="metric"><span>Parquet 容量</span><strong id="opsParquetBytes">0 B</strong></div>
-                  <div class="metric"><span>Frozen 容量</span><strong id="opsFrozenBytes">0 B</strong></div>
+              <div class="search-panel">
+                <div class="panel-head">
+                  <h2>Frozen 历史追溯</h2>
+                  <span id="coldStatus" class="muted">不解压落盘，直接流式扫描 raw-import-*.tar.zst</span>
+                </div>
+                <div class="search-form">
+                  <label>日期<input id="coldDay" type="text" placeholder="20260516"></label>
+                  <label>源 IP<input id="coldSrcIp" type="text" placeholder="2.55.80.6"></label>
+                  <label>目的 IP<input id="coldDstIp" type="text" placeholder="211.93.49.88"></label>
+                  <label>动作<input id="coldAction" type="text" placeholder="snat"></label>
+                  <label>关键字<input id="coldKeyword" type="text" placeholder="NAT类型"></label>
+                  <label>包含失败<select id="coldIncludeFailed"><option value="">否</option><option value="1">是</option></select></label>
+                  <button id="coldSearch" class="primary" type="button">开始追溯</button>
                 </div>
               </div>
-              <div class="notice">冷库默认只保留极小 Parquet 索引；历史全文追溯走 Frozen 流式扫描，不把 .tar.zst 解压到磁盘。</div>
-            </div>
-            <div class="grid">
               <div class="panel">
-                <div class="panel-head"><h2>Parquet 文件</h2><span class="muted">冷库快照</span></div>
-                <div id="archiveFiles" class="files"></div>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h2>Frozen 文件</h2><span class="muted">原始归档</span></div>
-                <div id="frozenFileList" class="files"></div>
+                <div class="panel-head"><h2>追溯结果</h2><span id="coldSummary" class="muted">等待查询</span></div>
+                <div class="table-wrap compact">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>接收时间</th>
+                        <th>状态</th>
+                        <th>源地址</th>
+                        <th>目的地址</th>
+                        <th>协议</th>
+                        <th>动作</th>
+                        <th>原始日志</th>
+                      </tr>
+                    </thead>
+                    <tbody id="coldBody"><tr><td colspan="7" class="empty">暂无结果</td></tr></tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
-      </div>
-    </main>
+          </section>
+
+          <section id="page-ops" class="page">
+            <div class="grid ops-grid">
+              <div class="grid">
+                <div class="panel">
+                  <div class="panel-head"><h2>运行信息</h2><span class="muted">本机部署</span></div>
+                  <dl>
+                    <dt>服务</dt><dd id="service">-</dd>
+                    <dt>认证</dt><dd id="authEnabled">-</dd>
+                    <dt>数据库</dt><dd id="duckdbPath">-</dd>
+                    <dt>Parquet</dt><dd id="parquetDir">-</dd>
+                    <dt>Frozen</dt><dd id="frozenDir">-</dd>
+                    <dt>Spool 写入</dt><dd id="spoolWritten">-</dd>
+                    <dt>已落库</dt><dd id="eventsStored">-</dd>
+                  </dl>
+                </div>
+                <div class="panel">
+                  <div class="panel-head"><h2>归档资产</h2><span class="muted">物理文件清单</span></div>
+                  <div class="grid metrics">
+                    <div class="metric"><span>Parquet 文件</span><strong id="parquetFiles">0</strong></div>
+                    <div class="metric"><span>Frozen 文件</span><strong id="frozenFiles">0</strong></div>
+                    <div class="metric"><span>Parquet 容量</span><strong id="opsParquetBytes">0 B</strong></div>
+                    <div class="metric"><span>Frozen 容量</span><strong id="opsFrozenBytes">0 B</strong></div>
+                  </div>
+                </div>
+                <div class="notice">冷库默认只保留极小 Parquet 索引；历史全文追溯走 Frozen 流式扫描，不把 .tar.zst 解压到磁盘。</div>
+              </div>
+              <div class="grid">
+                <div class="panel">
+                  <div class="panel-head"><h2>Parquet 文件</h2><span class="muted">冷库快照</span></div>
+                  <div id="archiveFiles" class="files"></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head"><h2>Frozen 文件</h2><span class="muted">原始归档</span></div>
+                  <div id="frozenFileList" class="files"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const state = { status: null, events: [], visibleEvents: [] };
     const pageTitles = {
-      dashboard: "态势总览",
+      dashboard: "概览",
       events: "日志检索",
       cold: "历史追溯",
       ops: "运行维护"
+    };
+    const pageSubTitles = {
+      dashboard: "系统运行、解析质量和存储水位",
+      events: "最近 200 条，来自 DuckDB 热库",
+      cold: "按日期和字段流式扫描 Frozen 归档",
+      ops: "路径、容量和归档文件清单"
     };
 
     function text(value, fallback = "-") {
@@ -714,6 +741,7 @@
       $("page-" + page).classList.add("active");
       document.querySelector('.nav button[data-page="' + page + '"]').classList.add("active");
       $("pageTitle").textContent = pageTitles[page];
+      $("pageSubTitle").textContent = pageSubTitles[page];
       applyFilters();
     }
 
@@ -738,6 +766,7 @@
       );
 
       $("serviceName").textContent = text(status.service);
+      $("serviceBanner").textContent = text(status.service);
       $("service").textContent = text(status.service);
       $("authEnabled").textContent = status.auth_enabled ? "已开启" : "未开启";
       $("authState").textContent = status.auth_enabled ? "需要 Token" : "免认证";
@@ -874,7 +903,9 @@
       state.visibleEvents = visible;
       renderEventRows("dashboardEvents", visible.slice(0, 80), "compact");
       renderEventRows("eventsBody", visible, "full");
-      $("eventSummary").textContent = "显示 " + number(visible.length) + " / " + number(state.events.length) + " 条，来自 DuckDB 热库";
+      if ($("page-events").classList.contains("active")) {
+        $("pageSubTitle").textContent = "显示 " + number(visible.length) + " / " + number(state.events.length) + " 条，来自 DuckDB 热库";
+      }
     }
 
     async function exportCsv() {
