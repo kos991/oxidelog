@@ -9,6 +9,7 @@ anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
 csv.workspace = true
+fwlog-domain = { path = "../fwlog-domain" }
 fwlog-storage = { path = "../fwlog-storage" }
 serde.workspace = true
 serde_json.workspace = true
@@ -18,4 +19,3 @@ tower.workspace = true
 tower-http.workspace = true
 
 [dev-dependencies]
-fwlog-domain = { path = "../fwlog-domain" }

@@ -5,7 +5,7 @@ use std::sync::{
 
 use anyhow::{Context, Result};
 use flume::Sender;
-use fwlog_domain::RawLog;
+use fwlog_domain::{RawLog, RuntimeMetrics};
 use tokio::{net::UdpSocket, task::JoinHandle};
 
 #[derive(Clone, Default)]
@@ -37,25 +37,39 @@ pub async fn start_udp_listener(
     sender: Sender<RawLog>,
     dropped: UdpDropCounter,
 ) -> Result<JoinHandle<Result<()>>> {
+    start_udp_listener_with_metrics(addr, sender, dropped, RuntimeMetrics::default()).await
+}
+
+pub async fn start_udp_listener_with_metrics(
+    addr: String,
+    sender: Sender<RawLog>,
+    dropped: UdpDropCounter,
+    metrics: RuntimeMetrics,
+) -> Result<JoinHandle<Result<()>>> {
     let socket = UdpSocket::bind(&addr)
         .await
         .with_context(|| format!("bind udp listener {addr}"))?;
-    Ok(tokio::spawn(serve_udp_listener(socket, sender, dropped)))
+    Ok(tokio::spawn(serve_udp_listener(
+        socket, sender, dropped, metrics,
+    )))
 }
 
 async fn serve_udp_listener(
     socket: UdpSocket,
     sender: Sender<RawLog>,
     dropped: UdpDropCounter,
+    metrics: RuntimeMetrics,
 ) -> Result<()> {
     let mut buf = vec![0_u8; 65_535];
 
     loop {
         let (len, peer) = socket.recv_from(&mut buf).await.context("receive udp datagram")?;
+        metrics.inc_udp_received();
         let line = String::from_utf8_lossy(&buf[..len]).to_string();
         let raw = RawLog::new(format!("udp://{peer}"), line);
         if sender.try_send(raw).is_err() {
             dropped.increment();
+            metrics.inc_udp_dropped();
         }
     }
 }
@@ -70,8 +84,14 @@ mod tests {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let addr = socket.local_addr().unwrap();
         let dropped = UdpDropCounter::default();
+        let metrics = RuntimeMetrics::default();
 
-        let handle = tokio::spawn(serve_udp_listener(socket, tx, dropped.clone()));
+        let handle = tokio::spawn(serve_udp_listener(
+            socket,
+            tx,
+            dropped.clone(),
+            metrics.clone(),
+        ));
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         client.send_to(b"hello", addr).await.unwrap();
 
@@ -80,6 +100,8 @@ mod tests {
 
         assert_eq!(raw.raw, "hello");
         assert_eq!(dropped.get(), 0);
+        assert_eq!(metrics.snapshot().udp_received, 1);
+        assert_eq!(metrics.snapshot().udp_dropped, 0);
     }
 
     #[test]

@@ -11,6 +11,7 @@ limit="50"
 wait_seconds="3"
 output_root="smoke-production-output"
 ingest="1"
+api_token="${OXIDELOG_API_TOKEN:-}"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +25,7 @@ Options:
   --limit N             API event/archive limit (default: 50)
   --wait-seconds N      Seconds to wait after TCP ingest (default: 3)
   --output-root DIR     Artifact root directory (default: smoke-production-output)
+  --api-token TOKEN     Bearer token for protected API routes (or OXIDELOG_API_TOKEN)
   --no-ingest           Skip sample TCP ingest
   -h, --help            Show this help
 EOF
@@ -38,6 +40,7 @@ while [ "$#" -gt 0 ]; do
     --limit) limit="$2"; shift 2 ;;
     --wait-seconds) wait_seconds="$2"; shift 2 ;;
     --output-root) output_root="$2"; shift 2 ;;
+    --api-token) api_token="$2"; shift 2 ;;
     --no-ingest) ingest="0"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -58,6 +61,19 @@ base_url="http://${api_host}:${api_port}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 output_dir="${output_root}/${stamp}"
 mkdir -p "$output_dir"
+curl_config=""
+cleanup() {
+  if [ -n "$curl_config" ] && [ -f "$curl_config" ]; then
+    rm -f "$curl_config"
+  fi
+}
+trap cleanup EXIT
+
+if [ -n "$api_token" ]; then
+  curl_config="$(mktemp)"
+  chmod 0600 "$curl_config"
+  printf 'header = "Authorization: Bearer %s"\n' "$api_token" > "$curl_config"
+fi
 
 step() {
   echo "[smoke] $*"
@@ -67,14 +83,22 @@ get_json() {
   local path="$1"
   local outfile="$2"
   step "GET ${base_url}${path}"
-  curl -fsS --max-time 15 "${base_url}${path}" -o "$outfile"
+  if [ -n "$api_token" ]; then
+    curl -fsS --max-time 15 --config "$curl_config" "${base_url}${path}" -o "$outfile"
+  else
+    curl -fsS --max-time 15 "${base_url}${path}" -o "$outfile"
+  fi
 }
 
 post_json() {
   local path="$1"
   local outfile="$2"
   step "POST ${base_url}${path}"
-  curl -fsS --max-time 15 -X POST "${base_url}${path}" -o "$outfile"
+  if [ -n "$api_token" ]; then
+    curl -fsS --max-time 15 --config "$curl_config" -X POST "${base_url}${path}" -o "$outfile"
+  else
+    curl -fsS --max-time 15 -X POST "${base_url}${path}" -o "$outfile"
+  fi
 }
 
 json_value() {
@@ -174,7 +198,11 @@ if [ "$ingest" = "1" ] && [ "$event_count" -lt "$sample_count" ] && [ "$event_co
 fi
 
 step "GET ${base_url}/api/events/export.csv?limit=${limit}"
-curl -fsS --max-time 15 "${base_url}/api/events/export.csv?limit=${limit}" -o "$output_dir/events.csv"
+if [ -n "$api_token" ]; then
+  curl -fsS --max-time 15 --config "$curl_config" "${base_url}/api/events/export.csv?limit=${limit}" -o "$output_dir/events.csv"
+else
+  curl -fsS --max-time 15 "${base_url}/api/events/export.csv?limit=${limit}" -o "$output_dir/events.csv"
+fi
 if ! grep -Eq "event_id|raw|parse_status" "$output_dir/events.csv"; then
   echo "CSV export did not include expected event columns" >&2
   exit 1
@@ -218,6 +246,11 @@ fi
 
 echo "OxideLog production smoke passed"
 echo "API: $base_url"
+if [ -n "$api_token" ]; then
+  echo "Auth header: enabled"
+else
+  echo "Auth header: not set"
+fi
 if [ "$ingest" = "1" ]; then
   echo "TCP ingest: ${tcp_host}:${tcp_port} (${sample_count} lines)"
 else

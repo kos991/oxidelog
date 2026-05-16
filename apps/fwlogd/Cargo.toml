@@ -15,6 +15,7 @@ fwlog-domain = { path = "../../crates/fwlog-domain" }
 fwlog-ingress = { path = "../../crates/fwlog-ingress" }
 fwlog-spool = { path = "../../crates/fwlog-spool" }
 fwlog-storage = { path = "../../crates/fwlog-storage" }
+chrono.workspace = true
 serde.workspace = true
 tokio.workspace = true
 toml.workspace = true

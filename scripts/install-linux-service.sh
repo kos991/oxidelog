@@ -30,6 +30,13 @@ install -d /opt/oxidelog/bin
 install -m 0755 target/release/fwlogd /opt/oxidelog/bin/fwlogd
 
 install -d /etc/oxidelog
+if [ ! -f /etc/oxidelog/oxidelog.env ]; then
+  cat >/etc/oxidelog/oxidelog.env <<'ENV'
+# Optional API protection. Set a non-empty value and restart oxidelog.service.
+OXIDELOG_API_TOKEN=
+ENV
+  chmod 0600 /etc/oxidelog/oxidelog.env
+fi
 install -d \
   /var/lib/oxidelog/spool \
   /var/lib/oxidelog/duckdb \
@@ -59,6 +66,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/var/lib/oxidelog
 Environment=HOME=/var/lib/oxidelog
+EnvironmentFile=-/etc/oxidelog/oxidelog.env
 ExecStart=/opt/oxidelog/bin/fwlogd --config /etc/oxidelog/config.toml
 Restart=always
 RestartSec=2

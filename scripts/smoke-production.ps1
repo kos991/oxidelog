@@ -6,6 +6,7 @@ param(
     [int] $Limit = 50,
     [int] $WaitSeconds = 3,
     [string] $OutputRoot = "",
+    [string] $ApiToken = $env:OXIDELOG_API_TOKEN,
     [switch] $NoIngest
 )
 
@@ -22,6 +23,10 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $baseUrl = "http://${ApiHost}:$ApiPort"
 $ingestEnabled = -not $NoIngest.IsPresent
+$headers = @{}
+if (-not [string]::IsNullOrWhiteSpace($ApiToken)) {
+    $headers["Authorization"] = "Bearer $ApiToken"
+}
 
 function Write-Step {
     param([string] $Message)
@@ -37,7 +42,7 @@ function Invoke-SmokeJson {
 
     $uri = "$baseUrl$Path"
     Write-Step "$Method $uri"
-    $response = Invoke-RestMethod -Method $Method -Uri $uri -TimeoutSec 15
+    $response = Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -TimeoutSec 15
     ConvertTo-Json -InputObject $response -Depth 20 | Set-Content -Path $OutFile -Encoding UTF8
     return $response
 }
@@ -116,7 +121,7 @@ if ($ingestEnabled) {
 
 $csvPath = Join-Path $outputDir "events.csv"
 Write-Step "GET $baseUrl/api/events/export.csv?limit=$Limit"
-$csv = Invoke-WebRequest -Uri "$baseUrl/api/events/export.csv?limit=$Limit" -TimeoutSec 15
+$csv = Invoke-WebRequest -Uri "$baseUrl/api/events/export.csv?limit=$Limit" -Headers $headers -TimeoutSec 15
 Set-Content -Path $csvPath -Value $csv.Content -Encoding UTF8
 Assert-Condition ($csv.Content -match "event_id|raw|parse_status") "CSV export did not include expected event columns"
 
@@ -141,6 +146,7 @@ Assert-Condition ($restoredCount -gt 0) "expected restored frozen archive lines"
 
 Write-Host "OxideLog production smoke passed"
 Write-Host "API: $baseUrl"
+Write-Host "Auth header: $(if ($headers.Count -gt 0) { "enabled" } else { "not set" })"
 Write-Host "TCP ingest: $(if ($ingestEnabled) { "${TcpHost}:$TcpPort ($sampleCount lines)" } else { "skipped" })"
 Write-Host "Events checked: $eventCount"
 Write-Host "CSV: $csvPath"

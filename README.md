@@ -42,15 +42,19 @@ bash scripts/smoke-production.sh
 
 The production smoke defaults to API `http://192.168.0.142:18080` and TCP ingest `192.168.0.142:1514`. It checks `/api/health`, `/api/system/status`, sample TCP ingest, `/api/events`, CSV export, Parquet archive/list, and Frozen archive/list/restore. JSON, CSV, and ingested sample artifacts are written under `smoke-production-output/<timestamp>/`.
 
+If `[auth].api_token` is set in the server config, or `OXIDELOG_API_TOKEN` is set in `/etc/oxidelog/oxidelog.env`, pass the same token with `-ApiToken`, `--api-token`, or the `OXIDELOG_API_TOKEN` environment variable. The token is sent as `Authorization: Bearer <token>` and is not printed by the smoke scripts.
+
 Override targets or skip TCP ingest when needed:
 
 ```powershell
 .\scripts\smoke-production.ps1 -ApiHost 10.0.0.12 -ApiPort 18080 -TcpHost 10.0.0.12 -TcpPort 1514
+.\scripts\smoke-production.ps1 -ApiToken "change-me"
 .\scripts\smoke-production.ps1 -NoIngest
 ```
 
 ```bash
 bash scripts/smoke-production.sh --api-host 10.0.0.12 --api-port 18080 --tcp-host 10.0.0.12 --tcp-port 1514
+bash scripts/smoke-production.sh --api-token "change-me"
 bash scripts/smoke-production.sh --no-ingest
 ```
 
@@ -63,12 +67,22 @@ sudo bash scripts/uninstall-linux-service.sh
 Default local endpoints:
 
 - API: `http://127.0.0.1:18080`
+- UI: `http://127.0.0.1:18080/`
 - TCP syslog input: `127.0.0.1:1514`
 - UDP syslog input: `127.0.0.1:1515`
 
+Production hardening knobs:
+
+- `[auth].api_token`: optional API Bearer token. Empty means API routes are open. `/` and `/app` remain reachable so operators can enter the token in the UI.
+- `OXIDELOG_API_TOKEN`: environment override for the API token. The systemd installer creates `/etc/oxidelog/oxidelog.env` with this variable so secrets do not have to live in the repository config.
+- `[archive].enabled`: enables periodic Parquet and Frozen archive cycles.
+- `[archive].interval_seconds`: archive cycle interval. The daemon enforces a minimum of 60 seconds.
+- `[archive].batch_limit`: maximum recent events included in each periodic archive file.
+- `[archive].parquet_retention_days` and `[archive].frozen_retention_days`: remove expired archive files during each archive cycle.
+
 Archive API:
 
-- `GET /api/system/status` returns service identity, configured DuckDB/archive paths, DuckDB size, and Parquet/frozen archive file counts and byte totals as JSON.
+- `GET /api/system/status` returns service identity, auth state, configured DuckDB/archive paths, event counts, runtime metrics, DuckDB size, and Parquet/frozen archive file counts and byte totals as JSON.
 - `POST /api/archive/parquet?limit=1000` writes `data/parquet/events-YYYYMMDD-HHMMSS.parquet` and returns the archive file metadata as JSON.
 - `GET /api/archive/files` lists parquet archive files as JSON.
 - `POST /api/archive/frozen?limit=1000` writes `data/frozen/frozen-YYYYMMDD-HHMMSS.raw.zst` from recent event raw fields and returns the frozen file metadata as JSON.

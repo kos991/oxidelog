@@ -15,3 +15,13 @@ frozen_dir = "data/frozen"
 ingress_queue = 100000
 batch_size = 10000
 flush_interval_ms = 1000
+
+[auth]
+api_token = ""
+
+[archive]
+enabled = false
+interval_seconds = 86400
+batch_limit = 100000
+parquet_retention_days = 180
+frozen_retention_days = 365

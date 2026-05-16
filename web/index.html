@@ -52,6 +52,14 @@
       white-space: nowrap;
     }
     a:hover, button:hover { border-color: var(--accent); }
+    input {
+      width: 150px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #0e151a;
+      color: var(--text);
+      padding: 6px 8px;
+    }
     main {
       display: grid;
       grid-template-columns: minmax(280px, 380px) 1fr;
@@ -187,7 +195,8 @@
     </div>
     <div class="toolbar">
       <span id="updated" class="muted">未刷新</span>
-      <a href="/api/events/export.csv?limit=200" download>导出 CSV</a>
+      <input id="apiToken" type="password" autocomplete="off" placeholder="API Token">
+      <button id="exportCsv" type="button">导出 CSV</button>
       <button id="refresh" type="button">刷新</button>
     </div>
   </header>
@@ -206,7 +215,12 @@
         <h2>运行信息</h2>
         <dl>
           <dt>服务</dt><dd id="service">-</dd>
+          <dt>认证</dt><dd id="authEnabled">-</dd>
           <dt>解析成功</dt><dd id="eventsParsed">-</dd>
+          <dt>TCP 收入</dt><dd id="tcpReceived">-</dd>
+          <dt>UDP 收入</dt><dd id="udpReceived">-</dd>
+          <dt>UDP 丢弃</dt><dd id="udpDropped">-</dd>
+          <dt>落库批次</dt><dd id="batchesStored">-</dd>
           <dt>数据库</dt><dd id="duckdbPath">-</dd>
           <dt>Parquet</dt><dd id="parquetDir">-</dd>
           <dt>冰冻目录</dt><dd id="frozenDir">-</dd>
@@ -272,9 +286,32 @@
     }
 
     async function getJson(path) {
-      const response = await fetch(path, { headers: { "Accept": "application/json" } });
+      const headers = authHeaders("application/json");
+      const response = await fetch(path, { headers });
       if (!response.ok) throw new Error(path + " 返回 " + response.status);
       return response.json();
+    }
+
+    function authHeaders(accept) {
+      const headers = {};
+      if (accept) headers.Accept = accept;
+      const token = $("apiToken").value.trim();
+      if (token) headers.Authorization = "Bearer " + token;
+      return headers;
+    }
+
+    async function exportCsv() {
+      const response = await fetch("/api/events/export.csv?limit=200", {
+        headers: authHeaders("text/csv")
+      });
+      if (!response.ok) throw new Error("CSV 导出返回 " + response.status);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "oxidelog-events.csv";
+      link.click();
+      URL.revokeObjectURL(url);
     }
 
     function setHealth(ok, text) {
@@ -284,9 +321,14 @@
 
     function renderStatus(status) {
       $("service").textContent = value(status.service);
+      $("authEnabled").textContent = status.auth_enabled ? "已开启" : "未开启";
       $("eventsTotal").textContent = value(status.events_total || 0);
       $("eventsParsed").textContent = value(status.events_parsed || 0);
       $("eventsFailed").textContent = value(status.events_failed || 0);
+      $("tcpReceived").textContent = value(status.metrics && status.metrics.tcp_received || 0);
+      $("udpReceived").textContent = value(status.metrics && status.metrics.udp_received || 0);
+      $("udpDropped").textContent = value(status.metrics && status.metrics.udp_dropped || 0);
+      $("batchesStored").textContent = value(status.metrics && status.metrics.batches_stored || 0);
       $("duckdbBytes").textContent = bytes(status.duckdb_bytes);
       $("archiveTotal").textContent = value((status.parquet_files || 0) + (status.frozen_files || 0));
       $("duckdbPath").textContent = value(status.duckdb_path);
@@ -362,6 +404,10 @@
       }
     }
 
+    $("exportCsv").addEventListener("click", () => exportCsv().catch((error) => {
+      $("error").textContent = "CSV 导出失败：" + error.message;
+      $("error").style.display = "block";
+    }));
     $("refresh").addEventListener("click", refresh);
     refresh();
     setInterval(refresh, 30000);

@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use anyhow::{anyhow, Context};
@@ -21,6 +22,8 @@ use serde_json::json;
 use crate::ApiState;
 
 const APP_HTML: &str = include_str!("../../../web/index.html");
+const MAX_QUERY_LIMIT: usize = 100_000;
+static ARCHIVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize)]
 pub struct LimitQuery {
@@ -60,6 +63,7 @@ pub struct RestoreQuery {
 #[derive(Debug, Serialize)]
 struct SystemStatus {
     service: &'static str,
+    auth_enabled: bool,
     duckdb_path: PathBuf,
     parquet_dir: PathBuf,
     frozen_dir: PathBuf,
@@ -71,10 +75,24 @@ struct SystemStatus {
     parquet_bytes: u64,
     frozen_files: usize,
     frozen_bytes: u64,
+    metrics: fwlog_domain::MetricsSnapshot,
 }
 
 fn default_limit() -> usize {
     20
+}
+
+fn bounded_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_QUERY_LIMIT)
+}
+
+fn archive_stamp(prefix: &str, suffix: &str) -> String {
+    let sequence = ARCHIVE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "{prefix}-{}-{:06}.{suffix}",
+        Utc::now().format("%Y%m%d-%H%M%S%.6f"),
+        sequence % 1_000_000
+    )
 }
 
 pub async fn app() -> Html<&'static str> {
@@ -110,6 +128,7 @@ pub async fn system_status(Extension(state): Extension<ApiState>) -> Response {
 
     Json(SystemStatus {
         service: "fwlogd",
+        auth_enabled: state.auth_enabled,
         duckdb_path: state.duckdb_path.as_ref().clone(),
         parquet_dir: state.parquet_dir.as_ref().clone(),
         frozen_dir: state.frozen_dir.as_ref().clone(),
@@ -121,6 +140,7 @@ pub async fn system_status(Extension(state): Extension<ApiState>) -> Response {
         parquet_bytes: parquet_files.1,
         frozen_files: frozen_files.0,
         frozen_bytes: frozen_files.1,
+        metrics: state.metrics.snapshot(),
     })
     .into_response()
 }
@@ -129,7 +149,9 @@ pub async fn events(
     Extension(state): Extension<ApiState>,
     Query(query): Query<LimitQuery>,
 ) -> Response {
-    match DuckDbStore::open(&*state.duckdb_path).and_then(|store| store.query_recent(query.limit)) {
+    match DuckDbStore::open(&*state.duckdb_path)
+        .and_then(|store| store.query_recent(bounded_limit(query.limit)))
+    {
         Ok(events) => Json(events).into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
     }
@@ -140,7 +162,7 @@ pub async fn export_csv(
     Query(query): Query<LimitQuery>,
 ) -> Response {
     let result = DuckDbStore::open(&*state.duckdb_path).and_then(|store| {
-        let events = store.query_recent(query.limit)?;
+        let events = store.query_recent(bounded_limit(query.limit))?;
         let mut writer = csv::Writer::from_writer(Vec::new());
         for event in events {
             writer.serialize(event)?;
@@ -187,6 +209,49 @@ mod tests {
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("OxideLog"));
         assert!(body.contains("安全运营中心"));
+    }
+
+    #[tokio::test]
+    async fn api_token_protects_api_routes_but_not_ui() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::router_with_options(
+            dir.path().join("oxidelog.duckdb"),
+            dir.path().join("parquet"),
+            dir.path().join("frozen"),
+            fwlog_domain::RuntimeMetrics::default(),
+            Some("secret-token".to_string()),
+        );
+
+        let ui = app
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(ui.status(), StatusCode::OK);
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .header(header::AUTHORIZATION, "Bearer secret-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -431,6 +496,7 @@ mod tests {
             serde_json::from_slice(&to_bytes(status.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(status["service"], "fwlogd");
+        assert_eq!(status["auth_enabled"], false);
         assert_eq!(status["duckdb_path"], db_path.to_str().unwrap());
         assert_eq!(status["parquet_dir"], parquet_dir.to_str().unwrap());
         assert_eq!(status["frozen_dir"], frozen_dir.to_str().unwrap());
@@ -442,6 +508,7 @@ mod tests {
         assert_eq!(status["parquet_bytes"], 10);
         assert_eq!(status["frozen_files"], 2);
         assert_eq!(status["frozen_bytes"], 7);
+        assert_eq!(status["metrics"]["tcp_received"], 0);
 
         let missing_app = crate::router(
             dir.path().join("missing.duckdb"),
@@ -482,6 +549,23 @@ mod tests {
                 _ => format!("%{byte:02X}").chars().collect(),
             })
             .collect()
+    }
+
+    #[test]
+    fn bounded_limit_clamps_zero_and_huge_values() {
+        assert_eq!(bounded_limit(0), 1);
+        assert_eq!(bounded_limit(20), 20);
+        assert_eq!(bounded_limit(usize::MAX), MAX_QUERY_LIMIT);
+    }
+
+    #[test]
+    fn archive_stamp_is_unique_within_same_process() {
+        let first = archive_stamp("events", "parquet");
+        let second = archive_stamp("events", "parquet");
+
+        assert_ne!(first, second);
+        assert!(first.ends_with(".parquet"));
+        assert!(second.ends_with(".parquet"));
     }
 }
 
@@ -526,13 +610,13 @@ pub async fn archive_parquet(
     Extension(state): Extension<ApiState>,
     Query(query): Query<LimitQuery>,
 ) -> Response {
-    let file_name = format!("events-{}.parquet", Utc::now().format("%Y%m%d-%H%M%S"));
+    let file_name = archive_stamp("events", "parquet");
     let output_path = state.parquet_dir.join(file_name);
 
     let result = fs::create_dir_all(&*state.parquet_dir)
         .context("create parquet archive directory")
         .and_then(|_| DuckDbStore::open(&*state.duckdb_path))
-        .and_then(|store| store.archive_parquet(&output_path, query.limit));
+        .and_then(|store| store.archive_parquet(&output_path, bounded_limit(query.limit)));
 
     match result {
         Ok(file) => Json(ArchiveFileJson::from(file)).into_response(),
@@ -557,7 +641,7 @@ pub async fn archive_frozen(
     Extension(state): Extension<ApiState>,
     Query(query): Query<LimitQuery>,
 ) -> Response {
-    let file_name = format!("frozen-{}.raw.zst", Utc::now().format("%Y%m%d-%H%M%S"));
+    let file_name = archive_stamp("frozen", "raw.zst");
     let output_path = state.frozen_dir.join(file_name);
 
     let result = fs::create_dir_all(&*state.frozen_dir)
@@ -565,7 +649,7 @@ pub async fn archive_frozen(
         .and_then(|_| DuckDbStore::open(&*state.duckdb_path))
         .and_then(|store| {
             let raw_lines = store
-                .query_recent(query.limit)?
+                .query_recent(bounded_limit(query.limit))?
                 .into_iter()
                 .map(|event| event.raw)
                 .collect::<Vec<_>>();

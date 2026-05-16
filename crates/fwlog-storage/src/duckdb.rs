@@ -165,6 +165,86 @@ impl DuckDbStore {
             bytes,
         })
     }
+
+    pub fn archive_events_parquet(
+        &self,
+        output_path: impl AsRef<Path>,
+        events: &[CanonicalEvent],
+    ) -> Result<ArchiveFile> {
+        let output_path = output_path.as_ref();
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).context("create archive directory")?;
+        }
+
+        let sql_path = output_path.to_string_lossy().replace('\'', "''");
+        let copy_sql = format!(
+            "COPY archive_events TO '{}' (FORMAT PARQUET, COMPRESSION ZSTD)",
+            sql_path
+        );
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute_batch(
+            r#"
+            CREATE TEMP TABLE archive_events (
+              event_id TEXT,
+              ingest_time TEXT NOT NULL,
+              event_time TEXT,
+              vendor TEXT,
+              product TEXT,
+              src_ip TEXT,
+              src_port INTEGER,
+              dst_ip TEXT,
+              dst_port INTEGER,
+              protocol TEXT,
+              action TEXT,
+              severity TEXT,
+              raw TEXT NOT NULL,
+              parse_status TEXT NOT NULL,
+              parse_error TEXT
+            );
+            "#,
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT INTO archive_events (
+                  event_id, ingest_time, event_time, vendor, product,
+                  src_ip, src_port, dst_ip, dst_port, protocol, action, severity,
+                  raw, parse_status, parse_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )?;
+            for event in events {
+                stmt.execute(params![
+                    event.event_id.as_str(),
+                    event.ingest_time.to_rfc3339(),
+                    event.event_time.as_ref().map(|v| v.to_rfc3339()),
+                    event.vendor.as_deref(),
+                    event.product.as_deref(),
+                    event.src_ip.as_deref(),
+                    event.src_port.map(i64::from),
+                    event.dst_ip.as_deref(),
+                    event.dst_port.map(i64::from),
+                    event.protocol.as_deref(),
+                    event.action.as_deref(),
+                    event.severity.as_deref(),
+                    event.raw.as_str(),
+                    status_str(event.parse_status),
+                    event.parse_error.as_deref(),
+                ])?;
+            }
+        }
+        tx.execute_batch(&copy_sql)
+            .with_context(|| format!("archive selected events to parquet {}", output_path.display()))?;
+        tx.commit().context("commit selected event parquet archive")?;
+
+        let bytes = fs::metadata(output_path)
+            .with_context(|| format!("read archive metadata {}", output_path.display()))?
+            .len();
+        Ok(ArchiveFile {
+            path: output_path.to_path_buf(),
+            bytes,
+        })
+    }
 }
 
 fn row_to_event(row: &duckdb::Row<'_>) -> duckdb::Result<CanonicalEvent> {
@@ -270,6 +350,21 @@ mod tests {
             .unwrap();
 
         let archive = store.archive_parquet(&parquet_path, 10).unwrap();
+
+        assert_eq!(archive.path, parquet_path);
+        assert!(archive.path.exists());
+        assert!(archive.bytes > 0);
+    }
+
+    #[test]
+    fn archives_selected_events_to_parquet() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_path = dir.path().join("archives").join("selected.parquet");
+        let store = DuckDbStore::open(&db_path).unwrap();
+        let events = vec![event("one", ParseStatus::Parsed), event("two", ParseStatus::Failed)];
+
+        let archive = store.archive_events_parquet(&parquet_path, &events).unwrap();
 
         assert_eq!(archive.path, parquet_path);
         assert!(archive.path.exists());

@@ -3,6 +3,7 @@
 target/
 data/
 smoke-production-output/
+sangfor_fw_log/
 *.log
 !samples/sangfor.log
 *.tmp
