@@ -43,6 +43,8 @@ pub struct ColdSearchQuery {
     dst_ip: Option<String>,
     action: Option<String>,
     keyword: Option<String>,
+    #[serde(default)]
+    include_failed: bool,
     #[serde(default = "default_limit")]
     limit: usize,
 }
@@ -318,6 +320,9 @@ fn scan_cold_reader(
             source_addr: source_addr.to_string(),
             raw,
         });
+        if !query.include_failed && event.parse_status != fwlog_domain::ParseStatus::Parsed {
+            continue;
+        }
         if !matches_cold_query(&event, query) {
             continue;
         }
@@ -675,6 +680,38 @@ mod tests {
         assert_eq!(body["matched"], 1);
         assert_eq!(body["events"][0]["src_ip"], "192.168.0.105");
         assert_eq!(body["events"][0]["dst_ip"], "10.4.90.205");
+    }
+
+    #[tokio::test]
+    async fn cold_search_hides_failed_lines_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        std::fs::create_dir_all(&frozen_dir).unwrap();
+        write_raw_import_tar_zst(
+            &frozen_dir.join("raw-import-20260516-mixed.tar.zst"),
+            "Apr 29 17:19:12 192.168.9.6 825: AP:e05f.b9ea.78be: %LINK-3-UPDOWN\n\
+             Sangfor: src=192.168.0.105 dst=10.4.90.205 sport=21527 dport=2048 proto=TCP action=snat severity=info\n",
+        );
+
+        let app = crate::router(db_path, parquet_dir, frozen_dir);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/cold/search?day=20260516&limit=5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(body["matched"], 1);
+        assert_eq!(body["events"][0]["parse_status"], "parsed");
     }
 
     #[tokio::test]
