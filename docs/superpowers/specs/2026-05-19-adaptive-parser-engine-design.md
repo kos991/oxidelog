@@ -100,6 +100,7 @@ Bounded output behavior:
 
 - `applied_rules` uses a fixed `ArrayVec<RuleId, 8>`.
 - If more than eight active rules apply, keep the first eight in deterministic route order, set `applied_rules_truncated=true` in diagnostics, and continue parsing.
+- When `applied_rules_truncated=true`, rollback attribution for that event is incomplete. The control manager may use the event for aggregate scope health, but it must not auto-disable an omitted individual rule based on that event.
 - Overflow must never panic or allocate on the hot path.
 
 Static parser ABI:
@@ -187,13 +188,13 @@ pub fn parse_inner(&self, raw: RawLog, diagnostics: &mut ParseDiagnosticsBuffer)
 
 `ParseDiagnosticsBuffer` is a lightweight compatibility-mode structure, not `ParseScratch`. It stores parser name, detect outcome, parse status, errors, inferred fields, and applied adaptive rule ids. `ParseScratch` belongs to parser-kernel mode and is introduced later with the zero-copy scanner.
 
-`parse(raw)` becomes a wrapper that calls `parse_inner`, records diagnostics into the local metrics batch, and returns only the `CanonicalEvent`. This avoids adding diagnostics fields to `CanonicalEvent` while giving the control path metadata equivalent to parser-kernel mode.
+`parse(raw)` becomes a wrapper that calls `parse_inner`, records diagnostics into the local metrics batch, and returns only the `CanonicalEvent`. This avoids adding diagnostics fields to `CanonicalEvent` while giving the control path metadata equivalent to parser-kernel mode. `parse_inner` consumes `RawLog` in compatibility mode so the wrapper does not need an extra clone, but compatibility mode still materializes owned `CanonicalEvent` values; the strict no-clone/no-owned-field contract applies to parser-kernel mode.
 
 If `parse(raw)` is called outside a worker with no metrics batch installed, diagnostics are dropped after the returned event. Tests that need diagnostics should call `parse_inner`.
 
 ### Adaptive Field Mapper
 
-When deterministic adapters fail or produce incomplete output, a generic extractor scans the raw line for structured fields:
+When static parser families fail or produce incomplete output, the adaptive field mapper's generic extractor scans the raw line for structured fields:
 
 - `key=value`
 - `key: value`
@@ -210,7 +211,7 @@ The mapper learns aliases from raw keys to canonical fields:
 - `action`
 - `severity`
 
-In the first implementation, learned rules are scoped by `source:<normalized_source>` and pass through `shadow` before becoming `active`. If later device binding is available before parsing, device-scoped rules can be added as an explicit extension.
+In the first implementation, learned rules are scoped by `source:<normalized_source>` and pass through `shadow` before becoming `active`. `source:unknown:<hash_prefix>` buckets are the exception: they can collect deterministic parser profile counters and diagnostics, but they cannot create shadow rules or activate adaptive rules until the control path discovers a stable host/device alias. If later device binding is available before parsing, device-scoped rules can be added as an explicit extension.
 
 The generic extractor must be defensive because it handles unknown or hostile input. It must not depend on complex regexes. It should use a bounded, single-pass byte scanner and SIMD-assisted delimiter search through `memchr` where useful.
 
@@ -310,18 +311,20 @@ Parser adaptive state should live outside the hot event rows to avoid slowing no
 
 ### `parser_profiles`
 
-Tracks parser success and failure by scope.
+Tracks parser parsed, partial, and failed outcomes by scope.
 
 Columns:
 
 - `scope_key TEXT`
+- `parser_id TEXT`
 - `parser_name TEXT`
 - `success_count BIGINT`
+- `partial_count BIGINT`
 - `fail_count BIGINT`
 - `last_seen TIMESTAMPTZ`
 - `priority_boost DOUBLE`
 
-Primary key: `(scope_key, parser_name)`.
+Primary key: `(scope_key, parser_id)`. `parser_name` is display metadata and should remain stable, but route snapshots and pinned parser references use `parser_id`.
 
 ### `adaptive_field_rules`
 
@@ -342,6 +345,9 @@ Columns:
 - `activated_at TIMESTAMPTZ`
 - `disabled_at TIMESTAMPTZ`
 - `disabled_reason TEXT`
+- `recovery_sample_rate DOUBLE`
+- `recovery_attempts BIGINT`
+- `last_recovery_at TIMESTAMPTZ`
 
 Supported status values:
 
@@ -350,7 +356,29 @@ Supported status values:
 - `active`
 - `disabled`
 
-Rules are unique by `(scope_key, raw_key, canonical_field)`. `confidence` stores the Wilson lower bound, not the raw observed match ratio. `shadow_recovering` is a persisted lifecycle state used only during staged quarantine recovery; it is distinct from normal `shadow` learning.
+Rules are unique by `(scope_key, raw_key, canonical_field)`. `confidence` stores the Wilson lower bound, not the raw observed match ratio. `shadow_recovering` is a persisted lifecycle state used only during staged quarantine recovery; it is distinct from normal `shadow` learning. `recovery_sample_rate` is used only for `shadow_recovering` rules and is `NULL` or `0` for ordinary `shadow`, `active`, and `disabled` rules.
+
+### `parser_scope_state`
+
+Stores scope-level adaptive controls that cannot be represented by parser profiles or individual rules.
+
+Columns:
+
+- `scope_key TEXT PRIMARY KEY`
+- `source_high_entropy BOOLEAN NOT NULL`
+- `adaptive_learning_enabled BOOLEAN NOT NULL`
+- `unknown_source_bucket BOOLEAN NOT NULL`
+- `metrics_gap BOOLEAN NOT NULL`
+- `metrics_gap_since TIMESTAMPTZ`
+- `malformed_flood_until TIMESTAMPTZ`
+- `shadow_rule_cooldown_until TIMESTAMPTZ`
+- `adaptive_quarantine_until TIMESTAMPTZ`
+- `quarantine_backoff_seconds BIGINT NOT NULL`
+- `quarantine_attempts BIGINT NOT NULL`
+- `last_state_change TIMESTAMPTZ NOT NULL`
+- `last_seen TIMESTAMPTZ NOT NULL`
+
+`parser_scope_state` is the API-visible home for high-entropy scopes, unknown buckets, malformed-flood mode, metrics gaps, adaptive quarantine, and quarantine backoff. `source:unknown:<hash_prefix>` scopes set `unknown_source_bucket=true` and `adaptive_learning_enabled=false` until alias repair enables learning for a more specific scope.
 
 ### `parser_diagnostics`
 
@@ -362,9 +390,45 @@ Columns:
 - `scope_key TEXT`
 - `reason TEXT NOT NULL`
 - `sample_raw TEXT`
+- `sample_raw_truncated BOOLEAN NOT NULL`
 - `count BIGINT NOT NULL`
 - `suggested_rule_id TEXT`
 - `last_seen TIMESTAMPTZ NOT NULL`
+
+`sample_raw` is a bounded diagnostic sample, not a full archival copy of the log line. It should be truncated to a configured diagnostic sample limit before checkpointing, with `sample_raw_truncated=true` when truncation occurs.
+
+### `source_device_aliases`
+
+Records source-to-device relationships discovered after parsing or pipeline binding.
+
+Columns:
+
+- `source_key TEXT`
+- `raw_source_addr TEXT`
+- `device_id TEXT`
+- `first_seen TIMESTAMPTZ`
+- `last_seen TIMESTAMPTZ`
+- `confidence DOUBLE`
+
+Primary key: `(source_key, raw_source_addr, device_id)`.
+
+### `parser_checkpoint_version`
+
+Publishes complete adaptive-state snapshots to API readers.
+
+Columns:
+
+- `snapshot_version BIGINT PRIMARY KEY`
+- `created_at TIMESTAMPTZ NOT NULL`
+- `published_at TIMESTAMPTZ`
+- `status TEXT NOT NULL`
+- `profiles_count BIGINT NOT NULL`
+- `rules_count BIGINT NOT NULL`
+- `diagnostics_count BIGINT NOT NULL`
+- `scope_state_count BIGINT NOT NULL`
+- `aliases_count BIGINT NOT NULL`
+
+Supported status values are `pending`, `published`, and `failed`. When versioned checkpoint tables are used, each checkpointed adaptive table includes `snapshot_version` and its primary key is extended with `snapshot_version`. API readers first load the latest published version from `parser_checkpoint_version`, then read all adaptive tables using that version. If the first implementation uses stable tables with `MERGE` instead, `parser_checkpoint_version` still records the last durable checkpoint and row counts for observability.
 
 Fingerprints must be deterministic and explicitly scoped. The fingerprint input is:
 
@@ -422,10 +486,10 @@ Existing UI/API filters should treat `Partial` as searchable event data by defau
 2. Normalize `source_addr` and resolve hot routing scope from `normalized_source`.
 3. Load the immutable route snapshot for the scope.
 4. Walk route groups in snapshot order.
-5. Run bounded detection and parsing for deterministic adapters.
-6. If an adapter returns `Parsed`, emit the event and append a compact success record to the local metrics batch.
+5. Run bounded detection and parsing for static parser families: dedicated adapters, `GenericKvParser`, and `RuleBasedParser`.
+6. If a static parser family returns `Parsed`, emit the event and append a compact success record to the local metrics batch. Active adaptive rules do not mutate already parsed deterministic output in the first implementation.
 7. Optionally enqueue sampled shadow-validation work to the control path; do not run unbounded adaptive validation inline.
-8. If deterministic adapters fail or return `Partial`, run generic KV extraction.
+8. If the static parser families fail or return `Partial`, run the adaptive field mapper's bounded extractor. This extractor is distinct from the deterministic `GenericKvParser` layer: it produces borrowed `GenericPair` observations for diagnostics and adaptive-rule learning, and it does not replace configured TOML rules.
 9. Apply active adaptive field rules only to empty canonical fields.
 10. Classify output as `Parsed`, `Partial`, or `Failed`.
 11. Emit a compact parser metrics event to a local batch buffer.
@@ -450,13 +514,13 @@ Backpressure policy:
 - Workers must use non-blocking send.
 - If the channel is full, the worker keeps a compact overflow aggregate in local memory by `(scope_key, parser_id, status)` and increments `parser_metrics_dropped_batches`.
 - If the local overflow aggregate exceeds `metrics_overflow_max_entries`, the worker drops the lowest-priority entries in this order: shadow-validation samples, detailed diagnostics, then aggregate profile deltas.
-- Aggregate success/fail counters are preserved longer than diagnostic samples because they keep route profiles roughly correct.
+- Aggregate success/partial/fail counters are preserved longer than diagnostic samples because they keep route profiles roughly correct.
 - Every drop path increments visible runtime counters and emits a rate-limited warning so adaptive blind spots are observable.
 - The control manager records `metrics_gap=true` for scopes affected by drops; rules cannot auto-activate from windows that include metrics gaps.
 
 Checkpoint persistence should run on an interval, for example every 30 seconds or on graceful shutdown. DuckDB checkpoint writes should use staging tables plus an atomic publish marker:
 
-1. Write the next snapshot into `parser_profiles_staging`, `adaptive_field_rules_staging`, and `parser_diagnostics_staging` inside one transaction.
+1. Write the next snapshot into `parser_profiles_staging`, `adaptive_field_rules_staging`, `parser_scope_state_staging`, `parser_diagnostics_staging`, and `source_device_aliases_staging` inside one transaction.
 2. Validate row counts and snapshot metadata.
 3. Commit by updating a single `parser_checkpoint_version` table to point API readers at the new snapshot version.
 4. Keep the previous snapshot readable until the new version is committed.
@@ -487,7 +551,7 @@ This alias is used for UI grouping and offline reporting. It does not automatica
 
 If a future ingest admission stage adds `device_id` before parsing, profile repair follows these rules:
 
-- Source profiles may be copied into a new device aggregate by summing success/fail counts.
+- Source profiles may be copied into a new device aggregate by summing parsed, partial, and failed counts.
 - Adaptive rules are not blindly moved; they are revalidated in shadow mode under the device scope.
 - If multiple sources map to one device with conflicting active rules, the device scope starts with deterministic routes only until shadow validation re-activates safe rules.
 
@@ -538,6 +602,14 @@ Operational API:
 - `POST /api/parser/adaptive/rules/:id/disable`
 - `GET /api/parser/diagnostics`
 - `GET /api/parser/profiles`
+- `GET /api/parser/scopes`
+
+Parser and rule identifiers:
+
+- Built-in and kernel parsers use stable `parser_id` values such as `parser:sangfor_nat_v1`.
+- Configured TOML rules use `rule:<ruleset_id>:<rule_name>` when a ruleset id exists, or `rule:default:<rule_name>` for single-file compatibility.
+- Rule names must be unique within a ruleset. If duplicate names are loaded, the engine must reject the ruleset or require explicit generated ids before the rules can be pinned.
+- `pinned_parsers` and `parser.pinned_scope.parsers` accept only these fully qualified ids.
 
 Emergency behavior:
 
@@ -547,7 +619,7 @@ Emergency behavior:
 - If a scope enters malformed-flood mode, adaptive rule generation pauses for that scope until the fingerprint cardinality window recovers.
 - If a scope enters adaptive quarantine, all adaptive active rules stop applying for that scope unless an operator explicitly pins a rule as allowed.
 
-Rollback attribution is per rule, not just per scope. Each emitted metrics event must include the active adaptive rule ids applied during parsing. The control manager keeps per-rule post-activation counters:
+Rollback attribution is per rule, not just per scope. Each emitted metrics event must include the active adaptive rule ids applied during parsing. If `applied_rules_truncated=true`, per-rule attribution for omitted rules is treated as unknown and the affected window cannot auto-disable individual omitted rules. The control manager keeps per-rule post-activation counters:
 
 - events where the rule was applied.
 - parsed, partial, and failed outcomes.
@@ -575,7 +647,7 @@ First implementation should stay backend-first:
 
 - Refactor `crates/fwlog-adapter` into registry, diagnostics, adaptive mapper, and Sangfor adapter modules.
 - Keep the existing `RuleBasedParser` and `with_rules_toml` API; adaptive rules are a separate runtime feature, not a replacement for configured TOML rules.
-- Preserve configured rule priority semantics by default. A TOML rule with a lower `priority` value must outrank generic fallback within the rule-based parser family, and operators can promote selected rules above generic/dedicated families through `pinned_parsers` or `parser.pinned_scope`.
+- Preserve configured rule priority semantics by default. A TOML rule with a lower `priority` value must outrank higher-numbered TOML rules within the rule-based parser family, and operators can promote selected rules above generic/dedicated families through `pinned_parsers` or `parser.pinned_scope`.
 - Document rule priority clearly: default family order is dedicated adapters, generic KV, configured rules, then adaptive fallback. `ParseRule.priority` orders rules only inside `RuleBasedParser`; operators must use `pinned_parsers` or `parser.pinned_scope` to run a configured rule before generic or dedicated parsers.
 - Add `arc-swap`, `arrayvec`, and `memchr` if implementation profiling confirms they fit the route snapshot, bounded pair buffer, and delimiter scanning needs.
 - Add storage tables and accessors in `crates/fwlog-storage`.
@@ -600,8 +672,9 @@ Parser tests:
 - Existing `GenericKvParser` and `RuleBasedParser` behavior remains compatible unless explicitly changed by a migration test.
 - Parser registry tries adapters in precomputed route snapshot order.
 - Scope normalization drops ephemeral ports by default and prevents raw source cardinality from fragmenting profiles.
+- `source:unknown:<hash_prefix>` buckets collect deterministic diagnostics but do not create shadow rules or apply adaptive rules.
 - High-entropy source scopes are marked and may aggregate learning into a subnet parent.
-- Pinned parsers and pinned TOML rule names appear in the highest route group and preserve operator intent.
+- Pinned parsers and fully qualified pinned TOML rule ids appear in the highest route group and preserve operator intent.
 - Adaptive router boosts the historically successful parser for a scope after the control task publishes a new snapshot.
 - Hot route lookup does not allocate or sort per event.
 - Generic extractor discovers unknown key/value fields.
@@ -630,8 +703,11 @@ Storage/API tests:
 - Full metrics channels drop lower-priority control data first, increment visible drop counters, and prevent auto-activation from affected windows.
 - Periodic checkpoint writes durable adaptive state with `TIMESTAMPTZ` fields.
 - Checkpoint publication gives API readers either the old complete snapshot or the new complete snapshot, never a partial replacement.
-- Adaptive rule lifecycle supports shadow, active, and disabled.
+- Adaptive rule lifecycle supports shadow, shadow_recovering, active, and disabled.
 - Adaptive rule lifecycle persists `shadow_recovering` separately from ordinary `shadow`.
+- Scope state persists `metrics_gap`, high-entropy flags, malformed-flood windows, quarantine windows, and quarantine backoff.
+- Checkpoint publication records `parser_checkpoint_version` row counts and API reads use one complete published snapshot.
+- Source-to-device aliases are checkpointed and queryable without changing hot routing.
 - Diagnostics group similar failures by fingerprint.
 - Diagnostics stop creating new fingerprints when per-scope cardinality exceeds the guard threshold.
 - Rule enable/disable endpoints change only the selected rule.
@@ -658,7 +734,7 @@ Compatibility sequence:
 6. Refactor parser diagnostics without breaking existing parse behavior.
 7. Add static route snapshots and `arc-swap` publication using normalized source scopes.
 8. Add batched parser metrics flush to a background control task with bounded-channel backpressure/drop accounting.
-9. Add in-memory profile state and consistent checkpoint publication.
+9. Add in-memory profile state, scope state, source-device aliases, and consistent checkpoint publication.
 10. Add bounded zero-copy generic KV extraction, safe long-line/pair truncation, and shadow rule collection.
 11. Add suggested rule generation for high-confidence unknown keys.
 12. Add shadow simulation using the same rule application function as active rules.
@@ -691,6 +767,7 @@ Parser-kernel sequence:
 - Keep one truncated sample per fingerprint and preserve full raw only in the event row/frozen archive.
 - Use normalized `source:<normalized_source>` as the first hot routing scope because `RawLog` has no `device_id`.
 - Bucket unparseable source addresses by hash and disable adaptive learning for unknown buckets until a stable alias is available.
+- Persist scope-level adaptive controls in `parser_scope_state`, not in diagnostics side effects.
 - Treat discovered `device_id` as control-plane alias/reporting metadata until an explicit ingest-stage device id exists.
 - Keep all adaptive profile, rule, and diagnostic writes off the hot path through batched control events.
 - Use Wilson lower bound as the activation confidence value.
