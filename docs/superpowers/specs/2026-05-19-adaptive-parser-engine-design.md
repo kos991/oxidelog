@@ -96,6 +96,12 @@ pub struct ParseOutput<'a> {
 
 `ParseOutput` borrows raw slices where possible. It is materialized into an owned `CanonicalEvent` only at the storage/API boundary. This makes "no owned `String` on the hot path" enforceable rather than aspirational.
 
+Bounded output behavior:
+
+- `applied_rules` uses a fixed `ArrayVec<RuleId, 8>`.
+- If more than eight active rules apply, keep the first eight in deterministic route order, set `applied_rules_truncated=true` in diagnostics, and continue parsing.
+- Overflow must never panic or allocate on the hot path.
+
 Static parser ABI:
 
 ```rust
@@ -141,7 +147,8 @@ Default scope normalization:
 - Parse URI-like values such as `udp://192.168.1.10:55123` and `tcp://127.0.0.1:1514`.
 - Use `source_ip` mode by default: `source:udp://192.168.1.10`, dropping the peer port.
 - Preserve protocol when known because TCP and UDP listeners can represent different ingest paths.
-- Use `source:unknown` only when no host can be parsed.
+- If no host can be parsed, use `source:unknown:<hash_prefix>` where `hash_prefix` is a short SHA-256 prefix of the raw `source_addr`.
+- `source:unknown:<hash_prefix>` scopes run deterministic parsers but do not generate adaptive shadow rules until a stable host/device alias is discovered.
 
 Optional modes:
 
@@ -229,6 +236,13 @@ pub struct GenericPairs<'a, const N: usize> {
 ```
 
 This avoids `String` allocation and avoids `HashMap` allocation on the hot path. If a later stage needs keyed lookup, it should either scan the bounded pair array or build an index only on the control path.
+
+Pair overflow behavior:
+
+- `GenericPairs` must use `try_push` or equivalent checked insertion.
+- When `max_generic_pairs` is reached, stop adding pairs, set `pairs_truncated=true` in diagnostics, and continue parsing with the complete pairs already collected.
+- The extractor may continue scanning only for safe boundary accounting, but it must not emit more pairs or create shadow rules from omitted pairs.
+- Pair overflow must never panic or allocate on the hot path.
 
 ### Confidence Gate
 
@@ -332,10 +346,11 @@ Columns:
 Supported status values:
 
 - `shadow`
+- `shadow_recovering`
 - `active`
 - `disabled`
 
-Rules are unique by `(scope_key, raw_key, canonical_field)`. `confidence` stores the Wilson lower bound, not the raw observed match ratio.
+Rules are unique by `(scope_key, raw_key, canonical_field)`. `confidence` stores the Wilson lower bound, not the raw observed match ratio. `shadow_recovering` is a persisted lifecycle state used only during staged quarantine recovery; it is distinct from normal `shadow` learning.
 
 ### `parser_diagnostics`
 
@@ -381,6 +396,7 @@ Malformed-flood recovery:
 - The scope leaves flood mode after `flood_recovery_seconds` if distinct fingerprint growth stays below half the threshold during the recovery window.
 - On recovery, precise fingerprints resume, but new shadow rule generation stays in cool-down for one additional recovery window.
 - Entering and leaving flood mode emits parser diagnostics and should be visible through `/api/parser/diagnostics`.
+- `source:unknown:<hash_prefix>` scopes can enter flood mode, but flood mode for one unknown bucket must not affect other unknown buckets.
 
 ## Parse Status
 
@@ -502,6 +518,7 @@ max_fingerprints_per_scope_per_minute = 200
 flood_recovery_seconds = 300
 quarantine_recovery_seconds = 600
 quarantine_max_seconds = 3600
+quarantine_max_seconds_cap = 86400
 max_raw_sources_per_scope_per_minute = 1000
 scope_idle_ttl_seconds = 86400
 scope_normalization = "source_ip" # source_ip | source_ip_port | source_subnet
@@ -548,6 +565,9 @@ Adaptive quarantine recovery:
 - Deterministic failure ratio is a health signal, not a hard gate for every rule's recovery.
 - If quarantine lasts longer than `quarantine_max_seconds`, the control manager performs one cautious staged recovery attempt for safe rules and keeps enhanced monitoring enabled.
 - If no safe rule is isolated after the max window, quarantine remains active and is visible through parser diagnostics/API until an operator disables or re-enables rules manually.
+- If a staged recovery attempt causes failure or partial rates to rise again, the scope re-enters quarantine immediately.
+- Repeated quarantine uses exponential backoff for `quarantine_max_seconds`, doubling after each failed recovery attempt up to `quarantine_max_seconds_cap = 86400`.
+- A successful recovery resets the backoff counter.
 
 ## Implementation Boundaries
 
@@ -556,6 +576,7 @@ First implementation should stay backend-first:
 - Refactor `crates/fwlog-adapter` into registry, diagnostics, adaptive mapper, and Sangfor adapter modules.
 - Keep the existing `RuleBasedParser` and `with_rules_toml` API; adaptive rules are a separate runtime feature, not a replacement for configured TOML rules.
 - Preserve configured rule priority semantics by default. A TOML rule with a lower `priority` value must outrank generic fallback within the rule-based parser family, and operators can promote selected rules above generic/dedicated families through `pinned_parsers` or `parser.pinned_scope`.
+- Document rule priority clearly: default family order is dedicated adapters, generic KV, configured rules, then adaptive fallback. `ParseRule.priority` orders rules only inside `RuleBasedParser`; operators must use `pinned_parsers` or `parser.pinned_scope` to run a configured rule before generic or dedicated parsers.
 - Add `arc-swap`, `arrayvec`, and `memchr` if implementation profiling confirms they fit the route snapshot, bounded pair buffer, and delimiter scanning needs.
 - Add storage tables and accessors in `crates/fwlog-storage`.
 - Wire live ingest and historical import through the same engine.
@@ -586,6 +607,8 @@ Parser tests:
 - Generic extractor discovers unknown key/value fields.
 - Generic extractor returns borrowed key/value slices and respects max-pair and max-line limits.
 - Generic extractor handles lines over `max_generic_line_bytes` only at safe pair boundaries and does not generate shadow rules from incomplete pairs.
+- Generic extractor stops safely at `max_generic_pairs`, sets `pairs_truncated=true`, and never panics when the bounded pair buffer is full.
+- `ParseOutput.applied_rules` truncates safely with `applied_rules_truncated=true` when more than eight rules apply.
 - Shadow rules collect samples without changing emitted events.
 - Shadow validation uses the same application function as active rules and records conflicts/conversion failures.
 - Unknown raw keys generate deduplicated provisional `suggested_rule_id` values only after sample and Wilson thresholds pass.
@@ -608,11 +631,13 @@ Storage/API tests:
 - Periodic checkpoint writes durable adaptive state with `TIMESTAMPTZ` fields.
 - Checkpoint publication gives API readers either the old complete snapshot or the new complete snapshot, never a partial replacement.
 - Adaptive rule lifecycle supports shadow, active, and disabled.
+- Adaptive rule lifecycle persists `shadow_recovering` separately from ordinary `shadow`.
 - Diagnostics group similar failures by fingerprint.
 - Diagnostics stop creating new fingerprints when per-scope cardinality exceeds the guard threshold.
 - Rule enable/disable endpoints change only the selected rule.
 - Ambiguous rollback moves a scope into adaptive quarantine instead of randomly disabling one of several active rules.
 - Quarantine disables adaptive rule application for the scope, then recovers safe rules through staged `shadow_recovering` even when deterministic failure ratio remains high.
+- Failed staged recovery re-enters quarantine with exponential backoff up to the configured cap.
 
 Pipeline/import tests:
 
@@ -634,13 +659,13 @@ Compatibility sequence:
 7. Add static route snapshots and `arc-swap` publication using normalized source scopes.
 8. Add batched parser metrics flush to a background control task with bounded-channel backpressure/drop accounting.
 9. Add in-memory profile state and consistent checkpoint publication.
-10. Add bounded zero-copy generic KV extraction, safe long-line truncation, and shadow rule collection.
+10. Add bounded zero-copy generic KV extraction, safe long-line/pair truncation, and shadow rule collection.
 11. Add suggested rule generation for high-confidence unknown keys.
 12. Add shadow simulation using the same rule application function as active rules.
 13. Add Wilson lower-bound activation for adaptive rules.
 14. Add active adaptive rule application with applied-rule attribution.
 15. Add fingerprint cardinality guard, malformed-flood fallback, and recovery windows.
-16. Add adaptive quarantine, staged recovery, rollback, and manual enable/disable APIs.
+16. Add adaptive quarantine, persisted `shadow_recovering`, staged recovery, rollback backoff, and manual enable/disable APIs.
 17. Add source-to-device alias reporting without using `device_id` for pre-parse hot routing.
 18. Add UI/API visibility for profiles, rules, and diagnostics.
 
@@ -665,11 +690,15 @@ Parser-kernel sequence:
 - Publish checkpoints with staging/version markers or MERGE semantics so parser APIs never observe partial checkpoint state.
 - Keep one truncated sample per fingerprint and preserve full raw only in the event row/frozen archive.
 - Use normalized `source:<normalized_source>` as the first hot routing scope because `RawLog` has no `device_id`.
+- Bucket unparseable source addresses by hash and disable adaptive learning for unknown buckets until a stable alias is available.
 - Treat discovered `device_id` as control-plane alias/reporting metadata until an explicit ingest-stage device id exists.
 - Keep all adaptive profile, rule, and diagnostic writes off the hot path through batched control events.
 - Use Wilson lower bound as the activation confidence value.
 - Use sliding-window recovery for malformed-flood and quarantine states; neither is permanent without continuing evidence.
 - Prefer staged quarantine recovery for safe rules over permanent scope lockout.
+- Persist `shadow_recovering` as its own rule status.
+- Use checked insertion for all bounded hot-path buffers; overflow sets diagnostics and never panics.
+- Preserve TOML rule priority within `RuleBasedParser`, and require pinning to promote configured rules across parser families.
 - Generate `suggested_rule_id` automatically from high-confidence unknown keys, never as a manual free-text annotation.
 - Allow operators to pin parsers and configured TOML rules into high-priority route groups.
 - Treat control-channel drops as observable degraded adaptive learning, not silent data loss.
