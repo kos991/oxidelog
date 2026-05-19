@@ -164,6 +164,7 @@ Implementation shape:
 - Store adapter ids in route groups and resolve them against a static registry; do not allocate boxed candidate vectors per event.
 - Publish route snapshots with `arc-swap` so workers perform an atomic pointer load and then read immutable arrays.
 - Treat the hot-path route lookup as O(1) with no per-event heap allocation.
+- Apply operator-pinned parsers before adaptive boosts. Pinned parser ids and rule names go into the highest route group for their configured source scope or globally.
 
 In parser-kernel mode, route groups store `ParserId` values only. The worker resolves ids by indexing the static `ParserVTable` array, not by following boxed trait objects.
 
@@ -172,12 +173,14 @@ In parser-kernel mode, route groups store `ParserId` values only. The worker res
 Compatibility mode keeps `ParserEngine::parse(RawLog) -> CanonicalEvent`, but diagnostics cannot disappear. The engine should add an internal method:
 
 ```rust
-pub fn parse_inner(&self, raw: RawLog, scratch: &mut ParseScratch<'_>) -> ParseResult {
+pub fn parse_inner(&self, raw: RawLog, diagnostics: &mut ParseDiagnosticsBuffer) -> ParseResult {
     // returns CanonicalEvent plus diagnostics/applied rule ids
 }
 ```
 
-`parse(raw)` becomes a wrapper that calls `parse_inner`, records diagnostics into the local metrics batch, and returns only the `CanonicalEvent`. This avoids adding diagnostics fields to `CanonicalEvent` while giving the control path the same metadata used by parser-kernel mode.
+`ParseDiagnosticsBuffer` is a lightweight compatibility-mode structure, not `ParseScratch`. It stores parser name, detect outcome, parse status, errors, inferred fields, and applied adaptive rule ids. `ParseScratch` belongs to parser-kernel mode and is introduced later with the zero-copy scanner.
+
+`parse(raw)` becomes a wrapper that calls `parse_inner`, records diagnostics into the local metrics batch, and returns only the `CanonicalEvent`. This avoids adding diagnostics fields to `CanonicalEvent` while giving the control path metadata equivalent to parser-kernel mode.
 
 If `parse(raw)` is called outside a worker with no metrics batch installed, diagnostics are dropped after the returned event. Tests that need diagnostics should call `parse_inner`.
 
@@ -425,7 +428,25 @@ Parser profile and diagnostics updates must be asynchronous. Workers should keep
 
 The background control task receives flush events through an MPSC channel or bounded ring buffer. It merges batches into in-memory maps and recomputes route snapshots. Single-row DuckDB updates are forbidden in both the hot path and steady-state control loop.
 
-Checkpoint persistence should run on an interval, for example every 30 seconds or on graceful shutdown. DuckDB checkpoint writes should be snapshot-style batch transactions: replace or merge compact aggregate rows, not append one row per parser event. If this still contends with analytical queries, move adaptive state persistence to SQLite while leaving DuckDB as the event analytics store.
+Backpressure policy:
+
+- The metrics channel is bounded.
+- Workers must use non-blocking send.
+- If the channel is full, the worker keeps a compact overflow aggregate in local memory by `(scope_key, parser_id, status)` and increments `parser_metrics_dropped_batches`.
+- If the local overflow aggregate exceeds `metrics_overflow_max_entries`, the worker drops the lowest-priority entries in this order: shadow-validation samples, detailed diagnostics, then aggregate profile deltas.
+- Aggregate success/fail counters are preserved longer than diagnostic samples because they keep route profiles roughly correct.
+- Every drop path increments visible runtime counters and emits a rate-limited warning so adaptive blind spots are observable.
+- The control manager records `metrics_gap=true` for scopes affected by drops; rules cannot auto-activate from windows that include metrics gaps.
+
+Checkpoint persistence should run on an interval, for example every 30 seconds or on graceful shutdown. DuckDB checkpoint writes should use staging tables plus an atomic publish marker:
+
+1. Write the next snapshot into `parser_profiles_staging`, `adaptive_field_rules_staging`, and `parser_diagnostics_staging` inside one transaction.
+2. Validate row counts and snapshot metadata.
+3. Commit by updating a single `parser_checkpoint_version` table to point API readers at the new snapshot version.
+4. Keep the previous snapshot readable until the new version is committed.
+5. Garbage-collect old snapshot rows after readers no longer need them.
+
+API queries must either see the previous complete snapshot or the new complete snapshot, never an empty or partial replacement. If staging/versioned reads are too much for the first implementation, use `MERGE`/UPSERT into stable tables and avoid `DELETE + INSERT` windows. If this still contends with analytical queries, move adaptive state persistence to SQLite while leaving DuckDB as the event analytics store.
 
 Parser-kernel mode may use a dedicated control-state store from the start:
 
@@ -461,6 +482,11 @@ Config:
 ```toml
 [parser]
 mode = "compat" # compat | kernel
+pinned_parsers = [] # optional parser ids/rule names, highest priority globally
+
+[[parser.pinned_scope]]
+scope = "source:udp://192.168.1.10"
+parsers = ["rule:CriticalCustomRule", "sangfor_nat_v1"]
 
 [parser.adaptive]
 enabled = true
@@ -470,9 +496,12 @@ activation_wilson_lower_bound = 0.98
 rollback_failed_ratio = 0.20
 metrics_flush_count = 1000
 metrics_flush_interval_ms = 100
+metrics_channel_capacity = 1024
+metrics_overflow_max_entries = 4096
 max_fingerprints_per_scope_per_minute = 200
 flood_recovery_seconds = 300
 quarantine_recovery_seconds = 600
+quarantine_max_seconds = 3600
 max_raw_sources_per_scope_per_minute = 1000
 scope_idle_ttl_seconds = 86400
 scope_normalization = "source_ip" # source_ip | source_ip_port | source_subnet
@@ -513,8 +542,12 @@ Adaptive quarantine recovery:
 
 - Quarantine lasts at least `quarantine_recovery_seconds`.
 - During quarantine, deterministic parsers still run and shadow replay continues in the control path.
-- The scope leaves quarantine only when shadow replay identifies safe rules whose Wilson lower bound still meets activation thresholds and the deterministic failure ratio has returned below rollback threshold.
-- If no safe rule is isolated, quarantine remains active and is visible through parser diagnostics/API until an operator disables or re-enables rules manually.
+- Recovery is staged by rule, not all-or-nothing.
+- A safe rule may re-enter `shadow_recovering` when shadow replay shows it improves parse output and has no direct conflicts, even if the deterministic failure ratio remains high because the device is producing bad logs.
+- `shadow_recovering` rules apply to a small sampled fraction of events first; if post-application failures do not rise, the control manager gradually increases the fraction and then restores `active`.
+- Deterministic failure ratio is a health signal, not a hard gate for every rule's recovery.
+- If quarantine lasts longer than `quarantine_max_seconds`, the control manager performs one cautious staged recovery attempt for safe rules and keeps enhanced monitoring enabled.
+- If no safe rule is isolated after the max window, quarantine remains active and is visible through parser diagnostics/API until an operator disables or re-enables rules manually.
 
 ## Implementation Boundaries
 
@@ -522,6 +555,7 @@ First implementation should stay backend-first:
 
 - Refactor `crates/fwlog-adapter` into registry, diagnostics, adaptive mapper, and Sangfor adapter modules.
 - Keep the existing `RuleBasedParser` and `with_rules_toml` API; adaptive rules are a separate runtime feature, not a replacement for configured TOML rules.
+- Preserve configured rule priority semantics by default. A TOML rule with a lower `priority` value must outrank generic fallback within the rule-based parser family, and operators can promote selected rules above generic/dedicated families through `pinned_parsers` or `parser.pinned_scope`.
 - Add `arc-swap`, `arrayvec`, and `memchr` if implementation profiling confirms they fit the route snapshot, bounded pair buffer, and delimiter scanning needs.
 - Add storage tables and accessors in `crates/fwlog-storage`.
 - Wire live ingest and historical import through the same engine.
@@ -546,6 +580,7 @@ Parser tests:
 - Parser registry tries adapters in precomputed route snapshot order.
 - Scope normalization drops ephemeral ports by default and prevents raw source cardinality from fragmenting profiles.
 - High-entropy source scopes are marked and may aggregate learning into a subnet parent.
+- Pinned parsers and pinned TOML rule names appear in the highest route group and preserve operator intent.
 - Adaptive router boosts the historically successful parser for a scope after the control task publishes a new snapshot.
 - Hot route lookup does not allocate or sort per event.
 - Generic extractor discovers unknown key/value fields.
@@ -569,13 +604,15 @@ Storage/API tests:
 
 - Parser profile aggregate update and query work by scope.
 - Metrics flush batches update in-memory parser profiles without single-row DuckDB writes.
+- Full metrics channels drop lower-priority control data first, increment visible drop counters, and prevent auto-activation from affected windows.
 - Periodic checkpoint writes durable adaptive state with `TIMESTAMPTZ` fields.
+- Checkpoint publication gives API readers either the old complete snapshot or the new complete snapshot, never a partial replacement.
 - Adaptive rule lifecycle supports shadow, active, and disabled.
 - Diagnostics group similar failures by fingerprint.
 - Diagnostics stop creating new fingerprints when per-scope cardinality exceeds the guard threshold.
 - Rule enable/disable endpoints change only the selected rule.
 - Ambiguous rollback moves a scope into adaptive quarantine instead of randomly disabling one of several active rules.
-- Quarantine disables adaptive rule application for the scope and recovers only after shadow replay identifies safe rules.
+- Quarantine disables adaptive rule application for the scope, then recovers safe rules through staged `shadow_recovering` even when deterministic failure ratio remains high.
 
 Pipeline/import tests:
 
@@ -592,19 +629,20 @@ Compatibility sequence:
 2. Add a compatibility detection shim around `can_parse` for `SangforAdapter`, `GenericKvParser`, and `RuleBasedParser`.
 3. Add `parse_inner` diagnostics channel while keeping `parse` as a `CanonicalEvent` wrapper.
 4. Add source normalization and high-entropy scope guards.
-5. Refactor parser diagnostics without breaking existing parse behavior.
-6. Add static route snapshots and `arc-swap` publication using normalized source scopes.
-7. Add batched parser metrics flush to a background control task.
-8. Add in-memory profile state and periodic checkpoint persistence.
-9. Add bounded zero-copy generic KV extraction, safe long-line truncation, and shadow rule collection.
-10. Add suggested rule generation for high-confidence unknown keys.
-11. Add shadow simulation using the same rule application function as active rules.
-12. Add Wilson lower-bound activation for adaptive rules.
-13. Add active adaptive rule application with applied-rule attribution.
-14. Add fingerprint cardinality guard, malformed-flood fallback, and recovery windows.
-15. Add adaptive quarantine, recovery, rollback, and manual enable/disable APIs.
-16. Add source-to-device alias reporting without using `device_id` for pre-parse hot routing.
-17. Add UI/API visibility for profiles, rules, and diagnostics.
+5. Add pinned parser/rule support and route snapshot ordering tests.
+6. Refactor parser diagnostics without breaking existing parse behavior.
+7. Add static route snapshots and `arc-swap` publication using normalized source scopes.
+8. Add batched parser metrics flush to a background control task with bounded-channel backpressure/drop accounting.
+9. Add in-memory profile state and consistent checkpoint publication.
+10. Add bounded zero-copy generic KV extraction, safe long-line truncation, and shadow rule collection.
+11. Add suggested rule generation for high-confidence unknown keys.
+12. Add shadow simulation using the same rule application function as active rules.
+13. Add Wilson lower-bound activation for adaptive rules.
+14. Add active adaptive rule application with applied-rule attribution.
+15. Add fingerprint cardinality guard, malformed-flood fallback, and recovery windows.
+16. Add adaptive quarantine, staged recovery, rollback, and manual enable/disable APIs.
+17. Add source-to-device alias reporting without using `device_id` for pre-parse hot routing.
+18. Add UI/API visibility for profiles, rules, and diagnostics.
 
 Parser-kernel sequence:
 
@@ -624,11 +662,15 @@ Parser-kernel sequence:
 - Include `Partial` in normal event searches and unified search results.
 - Keep `include_failed=false` scoped to failed rows only; it should not hide partial rows.
 - Keep runtime adaptive state in memory and checkpoint it periodically; DuckDB is not the high-frequency adaptive-state update engine.
+- Publish checkpoints with staging/version markers or MERGE semantics so parser APIs never observe partial checkpoint state.
 - Keep one truncated sample per fingerprint and preserve full raw only in the event row/frozen archive.
 - Use normalized `source:<normalized_source>` as the first hot routing scope because `RawLog` has no `device_id`.
 - Treat discovered `device_id` as control-plane alias/reporting metadata until an explicit ingest-stage device id exists.
 - Keep all adaptive profile, rule, and diagnostic writes off the hot path through batched control events.
 - Use Wilson lower bound as the activation confidence value.
 - Use sliding-window recovery for malformed-flood and quarantine states; neither is permanent without continuing evidence.
+- Prefer staged quarantine recovery for safe rules over permanent scope lockout.
 - Generate `suggested_rule_id` automatically from high-confidence unknown keys, never as a manual free-text annotation.
+- Allow operators to pin parsers and configured TOML rules into high-priority route groups.
+- Treat control-channel drops as observable degraded adaptive learning, not silent data loss.
 - Keep compatibility mode available until parser-kernel mode passes corpus equivalence and production smoke tests.
