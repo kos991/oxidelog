@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor OxideLog parsing from a single Sangfor-oriented adapter into a deterministic, multi-vendor parser framework with automatic adaptive routing, field learning, diagnostics, and rollback controls.
+Refactor OxideLog parsing from the current three-layer engine into a deterministic, multi-vendor parser framework with automatic adaptive routing, field learning, diagnostics, and rollback controls.
 
 The first implementation should improve two things:
 
@@ -17,40 +17,56 @@ The hot parse path must be designed as a high-throughput data plane. Per-event p
 
 Current parsing lives in `crates/fwlog-adapter`:
 
-- `ParserEngine` owns a list of boxed `LogAdapter` implementations.
-- `SangforAdapter` is the only default adapter.
+- `ParserEngine` already runs three layers: dedicated `LogAdapter`s, `GenericKvParser`, then `RuleBasedParser`.
+- `SangforAdapter` is the default dedicated adapter.
+- `RuleBasedParser` already supports `from_toml`, `from_rules`, and `ParserEngine::with_rules_toml`.
 - Live ingest in `apps/fwlogd` and historical import in `apps/fwlog-import` both call `ParserEngine::new().parse(raw)`.
+- `RawLog` has only `ingest_time`, `source_addr`, and `raw`; it does not carry `device_id`.
 - `CanonicalEvent` currently has `Parsed` and `Failed` parse statuses.
 - Storage and API already expose parser failure summaries and source/device visibility.
 
-This design keeps the shared parser path for live and historical data. It does not introduce Logstash, Elasticsearch, Quickwit, or another external parser dependency.
+This design keeps the shared parser path for live and historical data. It does not introduce Logstash, Elasticsearch, Quickwit, or another external parser dependency. It also keeps the existing rule-based parser as a first-class layer instead of replacing it.
 
 ## Architecture
 
 The parser engine will have four layers.
 
-### Parser Registry
+### Static Parser Layers
 
-The registry owns deterministic parser adapters. Each adapter exposes:
+The engine preserves the existing layer order and adds metadata around it:
+
+1. Dedicated adapters such as `SangforAdapter`.
+2. `GenericKvParser` for common key/value logs.
+3. `RuleBasedParser` for configured TOML/JSON rules.
+4. Adaptive field mapper as a bounded control-plane-assisted fallback.
+
+Each parser layer should eventually expose:
 
 - `name`: stable parser name, such as `sangfor_nat_v1`.
-- `vendor`: vendor name, such as `Sangfor`.
+- `vendor`: vendor name when known.
 - `priority`: base ordering before adaptive boosts.
-- `detect(raw)`: returns a detection score and match reason.
-- `parse(raw)`: returns a parsed event plus diagnostics.
+- `detect(raw)`: detection score and match reason.
+- `parse(raw)`: parsed event plus diagnostics.
 
-The existing `SangforAdapter` becomes the first registered adapter. Future adapters should be isolated by vendor or log family rather than bundled into one large parser file.
+This is a breaking change from the current `LogAdapter` trait, which has `can_parse(&RawLog) -> bool` and `parse(RawLog) -> CanonicalEvent`. The first implementation should use a compatibility shim:
+
+- Existing `can_parse=true` becomes a default positive `DetectOutcome`.
+- Existing `can_parse=false` becomes a zero-score `DetectOutcome`.
+- `SangforAdapter`, `GenericKvParser`, and `RuleBasedParser` keep their current parse behavior until each is migrated to richer diagnostics.
+
+Future adapters should be isolated by vendor or log family rather than bundled into one large parser file.
 
 ### Adaptive Router
 
-The router records which parser succeeds for each scope:
+The router records which parser succeeds for each source scope:
 
-- `device:<device_id>` when a device id is known.
-- `source:<source_addr>` when only the transport source is known.
+- `source:<source_addr>` is the only hot-path routing scope in the first implementation.
 
 For each new log line, the router uses precomputed route groups that already include profile-derived boosts. This reduces blind parser attempts and makes multi-vendor support cheaper during live ingest and historical import.
 
 The router must never sort adapters on the hot path. It must load an immutable route snapshot and walk fixed route groups in order. A high-confidence built-in parser should still win over an adaptive rule.
+
+`device_id` is not available before parsing because `RawLog` does not contain it. If a parser extracts `CanonicalEvent.device_id`, or the pipeline binds a device after parsing, that identity is control-plane metadata only. It may be used for UI grouping and offline profile repair, but it must not be required for pre-parse routing unless a future ingest admission stage explicitly adds `device_id` to `RawLog`.
 
 Implementation shape:
 
@@ -80,7 +96,7 @@ The mapper learns aliases from raw keys to canonical fields:
 - `action`
 - `severity`
 
-Learned rules are scoped by device/source and pass through `shadow` before becoming `active`.
+In the first implementation, learned rules are scoped by `source:<source_addr>` and pass through `shadow` before becoming `active`. If later device binding is available before parsing, device-scoped rules can be added as an explicit extension.
 
 The generic extractor must be defensive because it handles unknown or hostile input. It must not depend on complex regexes. It should use a bounded, single-pass byte scanner and SIMD-assisted delimiter search through `memchr` where useful.
 
@@ -122,6 +138,17 @@ These values should be configurable.
 
 The confidence gate must not use raw observed success ratio alone. Rule activation should use the lower bound of the Wilson score interval so small, temporarily homogeneous samples cannot activate brittle rules. The stored `confidence` field should represent the Wilson lower bound used for activation, with raw wins and samples available for audit.
 
+Shadow validation means applying candidate rules to sampled raw lines in the control path using the same field-application function that active rules use. The emitted production event is not mutated. The simulation records:
+
+- original status and fields from the production parse.
+- simulated status and fields after candidate application.
+- fields filled.
+- conflicts with deterministic fields.
+- conversion failures.
+- candidate rule ids involved.
+
+A shadow rule counts as a win only when the simulated event improves status or fills missing canonical fields without conflicts or conversion failures.
+
 ## Hot Path Performance Contract
 
 The live parse path is the data plane. It must obey these rules:
@@ -133,11 +160,11 @@ The live parse path is the data plane. It must obey these rules:
 - No complex regexes in the generic extractor.
 - No owned `String` copies for generic extracted keys and values unless the event is being materialized for storage.
 
-Adaptive state changes are the control plane. A background manager consumes batched events, updates DuckDB, recomputes static route snapshots, and publishes them atomically.
+Adaptive state changes are the control plane. A background manager consumes batched events, updates in-memory adaptive state, periodically checkpoints state, recomputes static route snapshots, and publishes them atomically.
 
 ## Data Model
 
-Parser adaptive state should live outside the hot event rows to avoid slowing normal event queries.
+Parser adaptive state should live outside the hot event rows to avoid slowing normal event queries. Runtime state is held in the control manager's in-memory maps. DuckDB is used only for periodic checkpoint/snapshot persistence and API reads, not for high-frequency point updates.
 
 ### `parser_profiles`
 
@@ -149,7 +176,7 @@ Columns:
 - `parser_name TEXT`
 - `success_count BIGINT`
 - `fail_count BIGINT`
-- `last_seen TEXT`
+- `last_seen TIMESTAMPTZ`
 - `priority_boost DOUBLE`
 
 Primary key: `(scope_key, parser_name)`.
@@ -169,9 +196,9 @@ Columns:
 - `confidence DOUBLE NOT NULL`
 - `wins BIGINT NOT NULL`
 - `sample_count BIGINT NOT NULL`
-- `created_at TEXT NOT NULL`
-- `activated_at TEXT`
-- `disabled_at TEXT`
+- `created_at TIMESTAMPTZ NOT NULL`
+- `activated_at TIMESTAMPTZ`
+- `disabled_at TIMESTAMPTZ`
 - `disabled_reason TEXT`
 
 Supported status values:
@@ -194,9 +221,19 @@ Columns:
 - `sample_raw TEXT`
 - `count BIGINT NOT NULL`
 - `suggested_rule_id TEXT`
-- `last_seen TEXT NOT NULL`
+- `last_seen TIMESTAMPTZ NOT NULL`
 
-Fingerprints should be based on normalized missing fields and raw key shapes, not full raw payloads.
+Fingerprints must be deterministic and explicitly scoped. The fingerprint input is:
+
+- `scope_key`.
+- parser layer or rule name that failed.
+- vendor hint when available.
+- error class.
+- sorted canonical missing-field set.
+- sorted normalized raw-key set, capped to `max_generic_pairs`.
+- coarse line shape, such as `kv`, `syslog_kv`, `arrow_rule`, or `unknown`.
+
+Values, URLs, and raw payload substrings are excluded. This prevents random payload values from exploding cardinality, while `scope_key`, parser layer, and vendor hint avoid incorrectly merging unrelated vendors that happen to share key names.
 
 Fingerprint generation must be cardinality-guarded. For each scope, the control path should track recent fingerprint growth with a sliding-window Bloom filter, count-min sketch, or equivalent bounded structure. If one scope creates more than the configured number of distinct fingerprints in a minute, the scope enters malformed-flood mode:
 
@@ -213,24 +250,24 @@ Default guard:
 
 Add a third status to `ParseStatus`:
 
-- `Parsed`: required fields are present with no parser warnings.
-- `Partial`: useful core fields exist, but non-critical required-by-adapter fields are missing.
-- `Failed`: minimum searchable fields are not present.
+- `Parsed`: the event has the minimum searchable tuple for its parser family.
+- `Partial`: the event has useful canonical fields, but the minimum searchable tuple is incomplete.
+- `Failed`: no useful canonical event can be produced.
 
-Minimum fields for adaptive parsed output:
+Default minimum searchable tuple for firewall/NAT logs:
 
 - `src_ip`
 - `dst_ip`
 - at least one of `action` or `protocol`
 
-If `src_ip` and `dst_ip` exist but action/protocol is missing, the event should be `Partial`.
+If `src_ip` and `dst_ip` exist but both action and protocol are missing, the event is `Partial`. If only action/protocol exists without usable endpoint fields, the event is also `Partial`. This resolves the distinction: `Partial` is not "non-critical fields are missing"; it is "some useful fields exist, but the parser-family minimum tuple is incomplete."
 
 Existing UI/API filters should treat `Partial` as searchable event data by default. Status counts must show partial separately from fully parsed and failed rows.
 
 ## Parse Flow
 
 1. Receive `RawLog`.
-2. Resolve scope from `device_id` if available, otherwise `source_addr`.
+2. Resolve hot routing scope from `source_addr`.
 3. Load the immutable route snapshot for the scope.
 4. Walk route groups in snapshot order.
 5. Run bounded detection and parsing for deterministic adapters.
@@ -241,7 +278,7 @@ Existing UI/API filters should treat `Partial` as searchable event data by defau
 10. Classify output as `Parsed`, `Partial`, or `Failed`.
 11. Emit a compact parser metrics event to a local batch buffer.
 12. Flush parser metrics batches to a background control task after a count or time threshold.
-13. The control task updates profiles, diagnostics, and shadow rule samples in bulk.
+13. The control task updates in-memory profiles, diagnostics, and shadow rule samples in bulk.
 14. Background evaluation promotes eligible shadow rules to active.
 15. The control task rebuilds and publishes route snapshots with `arc-swap`.
 16. Rollback evaluation disables active rules if the scope failure ratio rises after activation.
@@ -253,9 +290,27 @@ Parser profile and diagnostics updates must be asynchronous. Workers should keep
 - `metrics_flush_count = 1000`
 - `metrics_flush_interval_ms = 100`
 
-The background control task receives flush events through an MPSC channel or bounded ring buffer. It merges batches, writes DuckDB updates in bulk, and recomputes route snapshots. Single-row DuckDB updates are forbidden in the hot path.
+The background control task receives flush events through an MPSC channel or bounded ring buffer. It merges batches into in-memory maps and recomputes route snapshots. Single-row DuckDB updates are forbidden in both the hot path and steady-state control loop.
 
-DuckDB persistence should prefer batch SQL transactions first. If profiling shows it is still a bottleneck, use DuckDB Appender or `COPY FROM`-style staging for larger batches.
+Checkpoint persistence should run on an interval, for example every 30 seconds or on graceful shutdown. DuckDB writes should be snapshot-style batch transactions: replace or merge compact aggregate rows, not append one row per parser event. If this still contends with analytical queries, move adaptive state persistence to SQLite while leaving DuckDB as the event analytics store.
+
+## Scope Repair
+
+Because `RawLog` has no `device_id`, the first routing key is always `source:<source_addr>`. When later parsing or pipeline binding discovers `device_id`, the control path records a source-to-device alias:
+
+- `source_key`
+- `device_id`
+- `first_seen TIMESTAMPTZ`
+- `last_seen TIMESTAMPTZ`
+- `confidence`
+
+This alias is used for UI grouping and offline reporting. It does not automatically move hot routing to `device:<device_id>`.
+
+If a future ingest admission stage adds `device_id` before parsing, profile repair follows these rules:
+
+- Source profiles may be copied into a new device aggregate by summing success/fail counts.
+- Adaptive rules are not blindly moved; they are revalidated in shadow mode under the device scope.
+- If multiple sources map to one device with conflicting active rules, the device scope starts with deterministic routes only until shadow validation re-activates safe rules.
 
 ## Rollback And Controls
 
@@ -273,6 +328,7 @@ metrics_flush_interval_ms = 100
 max_fingerprints_per_scope_per_minute = 200
 max_generic_line_bytes = 8192
 max_generic_pairs = 64
+checkpoint_interval_seconds = 30
 ```
 
 Operational API:
@@ -290,45 +346,58 @@ Emergency behavior:
 - If an active rule causes failure or partial rates to cross the rollback threshold, the rule becomes `disabled` and records `disabled_reason`.
 - If a scope enters malformed-flood mode, adaptive rule generation pauses for that scope until the fingerprint cardinality window recovers.
 
+Rollback attribution is per rule, not just per scope. Each emitted metrics event must include the active adaptive rule ids applied during parsing. The control manager keeps per-rule post-activation counters:
+
+- events where the rule was applied.
+- parsed, partial, and failed outcomes.
+- conflicts and conversion failures.
+
+If several rules are applied to the same event, the control manager first disables rules with direct conflicts or conversion failures. If only aggregate failure rate rises and attribution is ambiguous, the scope enters adaptive quarantine: new active rules stop applying for that scope, but individual rules are not permanently disabled until shadow replay isolates the failing rule or operator action confirms it.
+
 ## Implementation Boundaries
 
 First implementation should stay backend-first:
 
 - Refactor `crates/fwlog-adapter` into registry, diagnostics, adaptive mapper, and Sangfor adapter modules.
+- Keep the existing `RuleBasedParser` and `with_rules_toml` API; adaptive rules are a separate runtime feature, not a replacement for configured TOML rules.
 - Add `arc-swap`, `arrayvec`, and `memchr` if implementation profiling confirms they fit the route snapshot, bounded pair buffer, and delimiter scanning needs.
 - Add storage tables and accessors in `crates/fwlog-storage`.
 - Wire live ingest and historical import through the same engine.
 - Add API endpoints for profiles, diagnostics, and adaptive rules.
 - Add minimal UI only after backend behavior is tested.
 
-Do not implement a full TOML/YAML rule language in the first pass. Leave room for a future `ConfigRuleAdapter`, but keep automatic rules in storage for now.
+Do not remove or downgrade the existing TOML rule language. Automatic adaptive rules are stored and evaluated separately from `RuleBasedParser`; configured TOML rules remain deterministic parser inputs.
 
 ## Testing Strategy
 
 Parser tests:
 
 - Existing Sangfor tests keep passing with identical normalized fields.
+- Existing `GenericKvParser` and `RuleBasedParser` behavior remains compatible unless explicitly changed by a migration test.
 - Parser registry tries adapters in precomputed route snapshot order.
 - Adaptive router boosts the historically successful parser for a scope after the control task publishes a new snapshot.
 - Hot route lookup does not allocate or sort per event.
 - Generic extractor discovers unknown key/value fields.
 - Generic extractor returns borrowed key/value slices and respects max-pair and max-line limits.
 - Shadow rules collect samples without changing emitted events.
+- Shadow validation uses the same application function as active rules and records conflicts/conversion failures.
 - Rules auto-activate only when sample count and Wilson lower-bound thresholds pass.
 - Active rules fill only empty canonical fields.
 - Active rules do not overwrite deterministic parser output.
-- Bad active rules are disabled when rollback thresholds are crossed.
+- Directly attributed bad active rules are disabled when rollback thresholds are crossed.
 - Fingerprint cardinality flood groups noisy failures under `FINGERPRINT_MALFORMED_FLOOD`.
 - `auto_activate = false` prevents shadow rules from becoming active.
 
 Storage/API tests:
 
-- Parser profile upsert and query work by scope.
-- Metrics flush batches update parser profiles without single-row hot-path writes.
+- Parser profile aggregate update and query work by scope.
+- Metrics flush batches update in-memory parser profiles without single-row DuckDB writes.
+- Periodic checkpoint writes durable adaptive state with `TIMESTAMPTZ` fields.
 - Adaptive rule lifecycle supports shadow, active, and disabled.
 - Diagnostics group similar failures by fingerprint.
 - Diagnostics stop creating new fingerprints when per-scope cardinality exceeds the guard threshold.
 - Rule enable/disable endpoints change only the selected rule.
+- Ambiguous rollback moves a scope into adaptive quarantine instead of randomly disabling one of several active rules.
 
 Pipeline/import tests:
 
@@ -339,24 +408,27 @@ Pipeline/import tests:
 ## Migration Plan
 
 1. Add `Partial` status and update storage/API serialization tests.
-2. Refactor the adapter trait to return parse diagnostics.
-3. Move Sangfor parsing behind the new registry without behavior changes.
-4. Add static route snapshots and `arc-swap` publication.
+2. Add a compatibility detection shim around `can_parse` for `SangforAdapter`, `GenericKvParser`, and `RuleBasedParser`.
+3. Refactor parser diagnostics without breaking existing parse behavior.
+4. Add static route snapshots and `arc-swap` publication using `source_addr` scopes.
 5. Add batched parser metrics flush to a background control task.
-6. Add profile storage and adaptive parser ordering through snapshot rebuilds.
+6. Add in-memory profile state and periodic checkpoint persistence.
 7. Add bounded zero-copy generic KV extraction and shadow rule collection.
-8. Add Wilson lower-bound activation for adaptive rules.
-9. Add active adaptive rule application.
-10. Add fingerprint cardinality guard and malformed-flood fallback.
-11. Add rollback and manual enable/disable APIs.
-12. Add UI/API visibility for profiles, rules, and diagnostics.
+8. Add shadow simulation using the same rule application function as active rules.
+9. Add Wilson lower-bound activation for adaptive rules.
+10. Add active adaptive rule application with applied-rule attribution.
+11. Add fingerprint cardinality guard and malformed-flood fallback.
+12. Add adaptive quarantine, rollback, and manual enable/disable APIs.
+13. Add source-to-device alias reporting without using `device_id` for pre-parse hot routing.
+14. Add UI/API visibility for profiles, rules, and diagnostics.
 
 ## Default Decisions
 
 - Include `Partial` in normal event searches and unified search results.
 - Keep `include_failed=false` scoped to failed rows only; it should not hide partial rows.
-- Store adaptive rules in DuckDB first; add JSON export later only if disaster recovery needs it.
+- Keep runtime adaptive state in memory and checkpoint it periodically; DuckDB is not the high-frequency adaptive-state update engine.
 - Keep one truncated sample per fingerprint and preserve full raw only in the event row/frozen archive.
-- Prefer `device:<device_id>` scope when device binding is available before parsing; otherwise use `source:<source_addr>` and let later backfill/profile repair improve scope quality.
+- Use `source:<source_addr>` as the first hot routing scope because `RawLog` has no `device_id`.
+- Treat discovered `device_id` as control-plane alias/reporting metadata until an explicit ingest-stage device id exists.
 - Keep all adaptive profile, rule, and diagnostic writes off the hot path through batched control events.
 - Use Wilson lower bound as the activation confidence value.
