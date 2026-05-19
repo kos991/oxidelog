@@ -27,6 +27,15 @@ Current parsing lives in `crates/fwlog-adapter`:
 
 This design keeps the shared parser path for live and historical data. It does not introduce Logstash, Elasticsearch, Quickwit, or another external parser dependency. It also keeps the existing rule-based parser as a first-class layer instead of replacing it.
 
+## Design Modes
+
+The implementation can proceed in two modes:
+
+- Compatibility mode: preserve the current public `ParserEngine::parse(RawLog) -> CanonicalEvent` surface and add route snapshots, diagnostics, and adaptive control-path state around it.
+- Parser-kernel mode: accept breaking internal API changes and rebuild the parser data plane around a richer parse envelope, static parser tables, and zero-allocation output buffers.
+
+Compatibility mode is the safer migration path. Parser-kernel mode is the aggressive target if the project is willing to update ingest, import, API cold-search reparsing, and tests together.
+
 ## Architecture
 
 The parser engine will have four layers.
@@ -56,6 +65,63 @@ This is a breaking change from the current `LogAdapter` trait, which has `can_pa
 
 Future adapters should be isolated by vendor or log family rather than bundled into one large parser file.
 
+### Parser-Kernel Mode
+
+Parser-kernel mode replaces trait-object routing on the hot path with a static parser ABI. The goal is not dynamic plugin flexibility; it is predictable data-plane execution.
+
+Core input type:
+
+```rust
+pub struct ParseEnvelope<'a> {
+    pub ingest_time: chrono::DateTime<chrono::Utc>,
+    pub source_addr: &'a str,
+    pub device_hint: Option<&'a str>,
+    pub raw: &'a str,
+}
+```
+
+`RawLog` remains the owned boundary type used by ingress, spool, and storage. The parser converts borrowed references from `RawLog` into `ParseEnvelope` for hot-path parsing. If a future admission stage knows the device before parsing, it sets `device_hint`; otherwise `device_hint` is `None`.
+
+Core output type:
+
+```rust
+pub struct ParseOutput<'a> {
+    pub status: ParseStatus,
+    pub parser_id: ParserId,
+    pub fields: CanonicalFields<'a>,
+    pub diagnostics: ParseDiagnostics<'a>,
+    pub applied_rules: arrayvec::ArrayVec<RuleId, 8>,
+}
+```
+
+`ParseOutput` borrows raw slices where possible. It is materialized into an owned `CanonicalEvent` only at the storage/API boundary. This makes "no owned `String` on the hot path" enforceable rather than aspirational.
+
+Static parser ABI:
+
+```rust
+pub struct ParserKernel {
+    pub parsers: &'static [ParserVTable],
+    pub routes: arc_swap::ArcSwap<RouteSnapshot>,
+}
+
+pub struct ParserVTable {
+    pub id: ParserId,
+    pub name: &'static str,
+    pub family: ParserFamily,
+    pub detect: fn(ParseEnvelope<'_>) -> DetectOutcome,
+    pub parse: fn(ParseEnvelope<'_>, &mut ParseScratch<'_>) -> ParseOutput<'_>,
+}
+```
+
+`ParseScratch` is owned by a worker and reused across events. It contains bounded buffers for generic pairs, diagnostics, and temporary canonical fields. It is never shared across worker threads.
+
+Parser-kernel mode changes the migration target:
+
+- `LogAdapter` becomes a compatibility adapter, not the core ABI.
+- `GenericKvParser` is rewritten as a scanner function that fills `ParseScratch`.
+- `RuleBasedParser` remains supported, but configured regex rules are compiled into a cold/fallback parser family; they do not run before dedicated and generic static parsers unless route snapshots explicitly prioritize them for a source.
+- `CanonicalEvent` creation moves to a final materialization function.
+
 ### Adaptive Router
 
 The router records which parser succeeds for each source scope:
@@ -76,6 +142,8 @@ Implementation shape:
 - Store adapter ids in route groups and resolve them against a static registry; do not allocate boxed candidate vectors per event.
 - Publish route snapshots with `arc-swap` so workers perform an atomic pointer load and then read immutable arrays.
 - Treat the hot-path route lookup as O(1) with no per-event heap allocation.
+
+In parser-kernel mode, route groups store `ParserId` values only. The worker resolves ids by indexing the static `ParserVTable` array, not by following boxed trait objects.
 
 ### Adaptive Field Mapper
 
@@ -159,6 +227,8 @@ The live parse path is the data plane. It must obey these rules:
 - No shared atomic counter increments for high-cardinality success/failure metrics.
 - No complex regexes in the generic extractor.
 - No owned `String` copies for generic extracted keys and values unless the event is being materialized for storage.
+- No trait-object dispatch in parser-kernel mode; dispatch is static vtable function pointers by `ParserId`.
+- No per-event `RawLog` clone in parser-kernel mode.
 
 Adaptive state changes are the control plane. A background manager consumes batched events, updates in-memory adaptive state, periodically checkpoints state, recomputes static route snapshots, and publishes them atomically.
 
@@ -294,6 +364,14 @@ The background control task receives flush events through an MPSC channel or bou
 
 Checkpoint persistence should run on an interval, for example every 30 seconds or on graceful shutdown. DuckDB writes should be snapshot-style batch transactions: replace or merge compact aggregate rows, not append one row per parser event. If this still contends with analytical queries, move adaptive state persistence to SQLite while leaving DuckDB as the event analytics store.
 
+Parser-kernel mode may use a dedicated control-state store from the start:
+
+- Runtime truth: in-memory control manager.
+- Fast durable checkpoint: SQLite or a compact binary snapshot under the data directory.
+- Analytics mirror: DuckDB tables refreshed from checkpoints for API/reporting.
+
+This separates OLTP-like adaptive state from DuckDB's columnar event analytics role.
+
 ## Scope Repair
 
 Because `RawLog` has no `device_id`, the first routing key is always `source:<source_addr>`. When later parsing or pipeline binding discovers `device_id`, the control path records a source-to-device alias:
@@ -317,6 +395,9 @@ If a future ingest admission stage adds `device_id` before parsing, profile repa
 Config:
 
 ```toml
+[parser]
+mode = "compat" # compat | kernel
+
 [parser.adaptive]
 enabled = true
 auto_activate = true
@@ -368,6 +449,13 @@ First implementation should stay backend-first:
 
 Do not remove or downgrade the existing TOML rule language. Automatic adaptive rules are stored and evaluated separately from `RuleBasedParser`; configured TOML rules remain deterministic parser inputs.
 
+If parser-kernel mode is selected, the implementation boundary changes:
+
+- Update `fwlog-domain` with `ParseEnvelope`, `ParseOutput`, `CanonicalFields`, and materialization helpers.
+- Update live ingest, historical import, and cold archive search reparsing to call the kernel API.
+- Keep `ParserEngine::parse(RawLog)` as a wrapper for tests and compatibility until callers migrate.
+- Add a feature flag or config gate so production can fall back to compatibility mode during rollout.
+
 ## Testing Strategy
 
 Parser tests:
@@ -387,6 +475,8 @@ Parser tests:
 - Directly attributed bad active rules are disabled when rollback thresholds are crossed.
 - Fingerprint cardinality flood groups noisy failures under `FINGERPRINT_MALFORMED_FLOOD`.
 - `auto_activate = false` prevents shadow rules from becoming active.
+- Parser-kernel mode parses from borrowed `ParseEnvelope` without cloning `RawLog`.
+- Parser-kernel materialization produces the same `CanonicalEvent` as compatibility mode for existing Sangfor, generic KV, and TOML rule fixtures.
 
 Storage/API tests:
 
@@ -404,8 +494,11 @@ Pipeline/import tests:
 - Live ingest and historical import both use the same parser engine behavior.
 - Parser adaptive state failure does not block event writes.
 - Disabled adaptive mode preserves deterministic parsing.
+- Parser-kernel mode and compatibility mode produce equivalent stored events for the same sample corpus.
 
 ## Migration Plan
+
+Compatibility sequence:
 
 1. Add `Partial` status and update storage/API serialization tests.
 2. Add a compatibility detection shim around `can_parse` for `SangforAdapter`, `GenericKvParser`, and `RuleBasedParser`.
@@ -422,6 +515,19 @@ Pipeline/import tests:
 13. Add source-to-device alias reporting without using `device_id` for pre-parse hot routing.
 14. Add UI/API visibility for profiles, rules, and diagnostics.
 
+Parser-kernel sequence:
+
+1. Add borrowed `ParseEnvelope`, `ParseOutput`, and `ParseScratch`.
+2. Implement `CanonicalEvent::from_parse_output` or equivalent materialization.
+3. Port `SangforAdapter` into a static parser function while keeping the old adapter wrapper.
+4. Rewrite `GenericKvParser` as the bounded byte scanner.
+5. Wrap `RuleBasedParser` as a cold parser family.
+6. Add static `ParserVTable` and `ParserId` route snapshots.
+7. Migrate `ParserEngine::parse` to call the kernel internally.
+8. Migrate live ingest and historical import to borrowed kernel calls where possible.
+9. Run corpus equivalence tests between compatibility and kernel modes.
+10. Make kernel mode the default only after equivalence and throughput tests pass.
+
 ## Default Decisions
 
 - Include `Partial` in normal event searches and unified search results.
@@ -432,3 +538,4 @@ Pipeline/import tests:
 - Treat discovered `device_id` as control-plane alias/reporting metadata until an explicit ingest-stage device id exists.
 - Keep all adaptive profile, rule, and diagnostic writes off the hot path through batched control events.
 - Use Wilson lower bound as the activation confidence value.
+- Keep compatibility mode available until parser-kernel mode passes corpus equivalence and production smoke tests.
