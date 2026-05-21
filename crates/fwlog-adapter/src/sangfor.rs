@@ -1,9 +1,31 @@
 use std::sync::OnceLock;
 
+use chrono::{Datelike, NaiveDateTime, TimeZone, Utc};
 use fwlog_domain::{make_event_id, CanonicalEvent, ParseStatus, RawLog};
 use regex::Regex;
 
-pub trait LogAdapter {
+pub trait LogAdapter: Send + Sync {
+    fn name(&self) -> &'static str;
+
+    fn parser_id(&self) -> &'static str {
+        "parser:legacy_adapter"
+    }
+
+    fn can_parse(&self, raw: &RawLog) -> bool {
+        let raw_lower = raw.raw.to_lowercase();
+        raw_lower.contains("sangfor")
+            || raw_lower.contains("日志类型")
+            || raw_lower.contains("nat类型")
+    }
+
+    fn detect(&self, raw: &RawLog) -> crate::DetectOutcome {
+        if self.can_parse(raw) {
+            crate::DetectOutcome::matched("compatibility can_parse matched")
+        } else {
+            crate::DetectOutcome::no_match("compatibility can_parse did not match")
+        }
+    }
+
     fn parse(&self, raw: RawLog) -> CanonicalEvent;
 }
 
@@ -11,6 +33,21 @@ pub trait LogAdapter {
 pub struct SangforAdapter;
 
 impl LogAdapter for SangforAdapter {
+    fn name(&self) -> &'static str {
+        "SangforAdapter"
+    }
+
+    fn parser_id(&self) -> &'static str {
+        "parser:sangfor_nat_v1"
+    }
+
+    fn can_parse(&self, raw: &RawLog) -> bool {
+        let raw_lower = raw.raw.to_lowercase();
+        raw_lower.contains("sangfor")
+            || raw_lower.contains("日志类型")
+            || raw_lower.contains("nat类型")
+    }
+
     fn parse(&self, raw: RawLog) -> CanonicalEvent {
         let mut src = None;
         let mut dst = None;
@@ -64,15 +101,18 @@ impl LogAdapter for SangforAdapter {
             }
         }
 
-        if src.is_none() || dst.is_none() || action.is_none() {
+        if src.is_none() && dst.is_none() && proto.is_none() && action.is_none() {
             return CanonicalEvent::failed(raw, "missing required fields: src, dst, action");
         }
 
-        CanonicalEvent {
+        let event_time = parse_syslog_timestamp(&raw.raw, raw.ingest_time);
+
+        let mut event = CanonicalEvent {
             event_id: make_event_id(&raw.raw, raw.ingest_time, &raw.source_addr),
             ingest_time: raw.ingest_time,
             source_addr: raw.source_addr,
-            event_time: None,
+            device_id: None,
+            event_time,
             vendor: Some("Sangfor".to_string()),
             product: Some("Firewall".to_string()),
             src_ip: src,
@@ -85,7 +125,9 @@ impl LogAdapter for SangforAdapter {
             raw: raw.raw,
             parse_status: ParseStatus::Parsed,
             parse_error: None,
-        }
+        };
+        event.classify_firewall_tuple();
+        event
     }
 }
 
@@ -127,6 +169,25 @@ fn normalize_protocol(value: String) -> String {
     }
 }
 
+fn parse_syslog_timestamp(raw: &str, ingest_time: chrono::DateTime<Utc>) -> Option<chrono::DateTime<Utc>> {
+    static SYSLOG_TS: OnceLock<Regex> = OnceLock::new();
+    let re = SYSLOG_TS.get_or_init(|| {
+        Regex::new(r"^(?:<\d+>)?(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})").unwrap()
+    });
+
+    let caps = re.captures(raw)?;
+    let ts_str = caps.get(1)?.as_str();
+
+    let year = ingest_time.year();
+    let with_year = format!("{} {}", year, ts_str);
+
+    if let Ok(naive) = NaiveDateTime::parse_from_str(&with_year, "%Y %b %d %H:%M:%S") {
+        return Utc.from_local_datetime(&naive).single();
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,7 +223,10 @@ mod tests {
         ];
 
         for line in lines {
-            assert_eq!(SangforAdapter.parse(raw(line)).parse_status, ParseStatus::Parsed);
+            assert_eq!(
+                SangforAdapter.parse(raw(line)).parse_status,
+                ParseStatus::Parsed
+            );
         }
 
         let failed = SangforAdapter.parse(raw("this is not a valid firewall log"));

@@ -6,6 +6,7 @@ DUCKDB="${2:-/var/lib/oxidelog/duckdb/oxidelog.duckdb}"
 BATCH_SIZE="${3:-500000}"
 SERVICE="${OXIDELOG_SERVICE:-oxidelog.service}"
 IMPORT_BIN="${OXIDELOG_IMPORT_BIN:-/opt/oxidelog/bin/fwlog-import}"
+HOT_LIMIT="${OXIDELOG_HOT_LIMIT:-100000}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "import-history-linux.sh must be run as root." >&2
@@ -40,7 +41,12 @@ start_service() {
 }
 trap start_service EXIT
 
+echo "Starting bulk import from $INPUT..."
 "$IMPORT_BIN" --input "$INPUT" --duckdb "$DUCKDB" --batch-size "$BATCH_SIZE"
+
+echo "Import complete. Starting database compaction (keeping latest $HOT_LIMIT rows)..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/compact-hot-linux.sh" "$DUCKDB" "$HOT_LIMIT"
 
 trap - EXIT
 start_service
