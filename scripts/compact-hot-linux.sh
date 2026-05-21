@@ -10,6 +10,7 @@ FROZEN_DIR="${OXIDELOG_FROZEN_DIR:-/var/lib/oxidelog/frozen}"
 PARQUET_DIR="${OXIDELOG_PARQUET_DIR:-/var/lib/oxidelog/parquet}"
 KEEP_BACKUP="${OXIDELOG_KEEP_BACKUP:-false}"
 SKIP_PARQUET="${OXIDELOG_SKIP_PARQUET:-true}"
+HOT_DAYS="${OXIDELOG_HOT_DAYS:-7}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 COMPACT="${DUCKDB%.duckdb}.compact-${STAMP}.duckdb"
 BACKUP="${DUCKDB%.duckdb}.backup-${STAMP}.duckdb"
@@ -46,9 +47,17 @@ trap start_service EXIT
 import_args=(
   --duckdb "$DUCKDB"
   --compact-output "$COMPACT"
-  --fast-hot-limit "$HOT_LIMIT"
   --drop-parsed-raw
 )
+
+if [ -n "$HOT_DAYS" ] && [ "$HOT_DAYS" -gt 0 ]; then
+  import_args+=(--hot-days "$HOT_DAYS")
+  echo "Compacting to keep last $HOT_DAYS days of data..."
+else
+  import_args+=(--fast-hot-limit "$HOT_LIMIT")
+  echo "Compacting to keep last $HOT_LIMIT rows..."
+fi
+
 if [ "$SKIP_PARQUET" != true ]; then
   import_args+=(--archive-slim-parquet "$PARQUET")
 fi
