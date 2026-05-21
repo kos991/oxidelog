@@ -13,8 +13,8 @@ frozen_dir = "data/frozen"
 
 [pipeline]
 ingress_queue = 100000
-batch_size = 10000
-flush_interval_ms = 1000
+batch_size = 50000
+flush_interval_ms = 5000
 
 [auth]
 api_token = ""
@@ -22,6 +22,12 @@ api_token = ""
 [archive]
 enabled = true
 interval_seconds = 86400
-batch_limit = 100000
+batch_limit = 500000
 parquet_retention_days = 180
 frozen_retention_days = 365
+
+[lifecycle]
+enabled = true
+hot_limit = 500000
+interval_seconds = 86400
+drop_parsed_raw = true
