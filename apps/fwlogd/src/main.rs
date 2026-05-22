@@ -1,9 +1,11 @@
 mod pipeline;
+mod replay;
 
 use std::{fs, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use fwlog_adapter::AdaptiveLearningConfig;
 use serde::Deserialize;
 
 #[derive(Debug, Parser)]
@@ -21,6 +23,12 @@ pub struct Config {
     pub auth: AuthConfig,
     #[serde(default)]
     pub archive: ArchiveConfig,
+    #[serde(default)]
+    pub lifecycle: LifecycleConfig,
+    #[serde(default)]
+    pub adaptive_learning: AdaptiveLearningConfig,
+    #[serde(default)]
+    pub dual_db: fwlog_storage::DualDbConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,6 +74,18 @@ pub struct ArchiveConfig {
     pub frozen_retention_days: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct LifecycleConfig {
+    #[serde(default = "default_lifecycle_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_hot_limit")]
+    pub hot_limit: usize,
+    #[serde(default = "default_lifecycle_interval_seconds")]
+    pub interval_seconds: u64,
+    #[serde(default = "default_drop_parsed_raw")]
+    pub drop_parsed_raw: bool,
+}
+
 impl Default for ArchiveConfig {
     fn default() -> Self {
         Self {
@@ -74,6 +94,17 @@ impl Default for ArchiveConfig {
             batch_limit: default_archive_limit(),
             parquet_retention_days: default_parquet_retention_days(),
             frozen_retention_days: default_frozen_retention_days(),
+        }
+    }
+}
+
+impl Default for LifecycleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_lifecycle_enabled(),
+            hot_limit: default_hot_limit(),
+            interval_seconds: default_lifecycle_interval_seconds(),
+            drop_parsed_raw: default_drop_parsed_raw(),
         }
     }
 }
@@ -94,6 +125,22 @@ fn default_frozen_retention_days() -> u64 {
     365
 }
 
+fn default_lifecycle_enabled() -> bool {
+    true
+}
+
+fn default_hot_limit() -> usize {
+    100_000
+}
+
+fn default_lifecycle_interval_seconds() -> u64 {
+    86_400
+}
+
+fn default_drop_parsed_raw() -> bool {
+    true
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -110,8 +157,8 @@ async fn main() -> Result<()> {
 }
 
 fn load_config(path: PathBuf) -> Result<Config> {
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("read config {}", path.display()))?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("read config {}", path.display()))?;
     let mut config: Config = toml::from_str(&content).context("parse config toml")?;
     if let Ok(token) = std::env::var("OXIDELOG_API_TOKEN") {
         if !token.is_empty() {

@@ -31,3 +31,7 @@ enabled = true
 hot_limit = 500000
 interval_seconds = 86400
 drop_parsed_raw = true
+
+[dual_db]
+enabled = false
+sync_interval_seconds = 300

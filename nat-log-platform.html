@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>NAT日志查询平台 - 网络运维监控</title>
+<!-- Tailwind CSS -->
+<script src="https://modao.cc/agent-py/static/source/js/tailwindcss.js"></script>
+<!-- Iconify -->
+<script src="https://modao.cc/agent-py/static/source/js/iconify-icon.min.js"></script>
+<!-- ECharts -->
+<script src="https://modao.cc/agent-py/static/source/js/echarts.min.js"></script>
+<style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #020617; /* slate-950 */
+            color: #f1f5f9; /* slate-100 */
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        .page-content {
+            display: none;
+        }
+        .page-content.active {
+            display: block;
+        }
+        .terminal-bg {
+            background-color: #030712;
+        }
+        .log-entry:hover {
+            background-color: #1e293b;
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex">
+<!-- 侧边栏导航 -->
+<aside class="w-64 border-r border-slate-800 bg-slate-900 flex flex-col">
+<div class="p-6 flex items-center space-x-3">
+<div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+<iconify-icon class="text-white text-xl" icon="mdi:router-network"></iconify-icon>
+</div>
+<span class="font-bold text-lg tracking-tight">NAT LOG PRO</span>
+</div>
+<nav class="flex-1 px-4 space-y-1 mt-4">
+<a class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-md bg-slate-800 text-blue-400" href="javascript:void(0)" id="nav-dashboard" onclick="switchPage('dashboard')">
+<iconify-icon class="text-xl" icon="lucide:layout-dashboard"></iconify-icon>
+<span class="font-medium">概览工作台</span>
+</a>
+<a class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors" href="javascript:void(0)" id="nav-devices" onclick="switchPage('devices')">
+<iconify-icon class="text-xl" icon="lucide:server"></iconify-icon>
+<span class="font-medium">设备接入管理</span>
+</a>
+<a class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors" href="javascript:void(0)" id="nav-realtime" onclick="switchPage('realtime')">
+<iconify-icon class="text-xl" icon="lucide:activity"></iconify-icon>
+<span class="font-medium">实时日志刷流</span>
+</a>
+<a class="nav-item flex items-center space-x-3 px-3 py-2.5 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors" href="javascript:void(0)" id="nav-query" onclick="switchPage('query')">
+<iconify-icon class="text-xl" icon="lucide:search"></iconify-icon>
+<span class="font-medium">高级日志查询</span>
+</a>
+</nav>
+<div class="p-4 border-t border-slate-800">
+<div class="flex items-center space-x-3 p-2 bg-slate-950 rounded-lg">
+<div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden">
+<img alt="User Avatar" class="w-full h-full object-cover" src="https://modao.cc/agent-py/media/generated_images/2026-05-16/bfe71d11cb394793a8e59183c8833aa3.jpg"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-slate-200 truncate">Admin_Root</p>
+<p class="text-xs text-slate-500 truncate">高级网络工程师</p>
+</div>
+<iconify-icon class="text-slate-500 cursor-pointer hover:text-red-400" icon="lucide:log-out"></iconify-icon>
+</div>
+</div>
+</aside>
+<!-- 主内容区 -->
+<main class="flex-1 flex flex-col min-w-0 bg-slate-950">
+<!-- 顶部通栏 -->
+<header class="h-16 border-b border-slate-800 flex items-center justify-between px-8 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+<div class="flex items-center space-x-6">
+<h2 class="text-lg font-semibold" id="page-title">概览工作台</h2>
+<div class="h-4 w-px bg-slate-700"></div>
+<div class="flex items-center space-x-4">
+<div class="flex items-center space-x-2">
+<span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+<span class="text-xs text-slate-400">系统状态: 正常</span>
+</div>
+<div class="flex items-center space-x-2">
+<iconify-icon class="text-blue-400" icon="lucide:database"></iconify-icon>
+<span class="text-xs text-slate-400">今日处理: <span class="text-slate-200">1.2TB</span></span>
+</div>
+</div>
+</div>
+<div class="flex items-center space-x-4">
+<button class="p-2 text-slate-400 hover:text-slate-100 transition-colors">
+<iconify-icon class="text-xl" icon="lucide:bell"></iconify-icon>
+</button>
+<button class="p-2 text-slate-400 hover:text-slate-100 transition-colors">
+<iconify-icon class="text-xl" icon="lucide:settings"></iconify-icon>
+</button>
+<div class="flex items-center bg-slate-800 rounded-lg p-1">
+<button class="px-3 py-1 text-xs bg-slate-700 rounded-md text-white">暗色</button>
+<button class="px-3 py-1 text-xs text-slate-400 hover:text-slate-200">浅色</button>
+</div>
+</div>
+</header>
+<!-- 页面容器 -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-8">
+<!-- 1. 概览页 -->
+<section class="page-content active space-y-8" id="page-dashboard">
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all shadow-sm">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-slate-400 text-sm font-medium">接入设备总数</p>
+<h3 class="text-3xl font-bold mt-2">1,284</h3>
+<p class="text-green-400 text-xs mt-2 flex items-center">
+<iconify-icon class="mr-1" icon="lucide:arrow-up"></iconify-icon> +12% 较上月
+                                </p>
+</div>
+<div class="p-3 bg-blue-500/10 rounded-lg text-blue-500">
+<iconify-icon class="text-2xl" icon="lucide:server"></iconify-icon>
+</div>
+</div>
+</div>
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-green-500/50 transition-all shadow-sm">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-slate-400 text-sm font-medium">当前在线设备</p>
+<h3 class="text-3xl font-bold mt-2">1,256</h3>
+<p class="text-slate-400 text-xs mt-2 flex items-center">
+                                    在线率 97.8%
+                                </p>
+</div>
+<div class="p-3 bg-green-500/10 rounded-lg text-green-500">
+<iconify-icon class="text-2xl" icon="lucide:wifi"></iconify-icon>
+</div>
+</div>
+</div>
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-purple-500/50 transition-all shadow-sm">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-slate-400 text-sm font-medium">今日日志总量</p>
+<h3 class="text-3xl font-bold mt-2">45.2M</h3>
+<p class="text-red-400 text-xs mt-2 flex items-center">
+<iconify-icon class="mr-1" icon="lucide:arrow-up"></iconify-icon> +5.4% 峰值
+                                </p>
+</div>
+<div class="p-3 bg-purple-500/10 rounded-lg text-purple-500">
+<iconify-icon class="text-2xl" icon="lucide:file-text"></iconify-icon>
+</div>
+</div>
+</div>
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800 hover:border-orange-500/50 transition-all shadow-sm">
+<div class="flex justify-between items-start">
+<div>
+<p class="text-slate-400 text-sm font-medium">实时流速 (Ingest)</p>
+<h3 class="text-3xl font-bold mt-2">8.4<span class="text-lg">Gbps</span></h3>
+<p class="text-slate-400 text-xs mt-2 flex items-center">
+                                    后端处理延迟 12ms
+                                </p>
+</div>
+<div class="p-3 bg-orange-500/10 rounded-lg text-orange-500">
+<iconify-icon class="text-2xl" icon="lucide:zap"></iconify-icon>
+</div>
+</div>
+</div>
+</div>
+<!-- 图表区域 -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-slate-900 p-6 rounded-xl border border-slate-800">
+<div class="flex items-center justify-between mb-6">
+<h4 class="font-semibold text-slate-200">近24小时日志流量趋势</h4>
+<select class="bg-slate-800 border-none text-xs rounded-md px-2 py-1 outline-none">
+<option>按小时</option>
+<option>按分钟</option>
+</select>
+</div>
+<div class="h-80 w-full" id="trendChart"></div>
+</div>
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800">
+<h4 class="font-semibold text-slate-200 mb-6">设备健康度分布</h4>
+<div class="h-80 w-full" id="statusChart"></div>
+</div>
+</div>
+<!-- 底部列表 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+<div class="p-4 border-b border-slate-800 flex justify-between items-center">
+<h4 class="font-semibold text-slate-200">最新告警事件</h4>
+<button class="text-xs text-blue-400 hover:underline">查看全部</button>
+</div>
+<div class="divide-y divide-slate-800">
+<div class="p-4 flex items-center space-x-4 hover:bg-slate-800/50 transition-colors">
+<div class="w-10 h-10 rounded bg-red-500/10 flex items-center justify-center text-red-500">
+<iconify-icon icon="lucide:alert-triangle"></iconify-icon>
+</div>
+<div class="flex-1">
+<p class="text-sm font-medium">防火墙-01 流量异常波动</p>
+<p class="text-xs text-slate-500">源IP: 192.168.1.105 触发 NAT 转换限制规则</p>
+</div>
+<span class="text-xs text-slate-500">2分钟前</span>
+</div>
+<div class="p-4 flex items-center space-x-4 hover:bg-slate-800/50 transition-colors">
+<div class="w-10 h-10 rounded bg-orange-500/10 flex items-center justify-center text-orange-500">
+<iconify-icon icon="lucide:info"></iconify-icon>
+</div>
+<div class="flex-1">
+<p class="text-sm font-medium">设备 Core-SW-02 端口映射接近上限</p>
+<p class="text-xs text-slate-500">当前利用率: 92.4% (60,542 / 65,535)</p>
+</div>
+<span class="text-xs text-slate-500">15分钟前</span>
+</div>
+<div class="p-4 flex items-center space-x-4 hover:bg-slate-800/50 transition-colors">
+<div class="w-10 h-10 rounded bg-blue-500/10 flex items-center justify-center text-blue-500">
+<iconify-icon icon="lucide:refresh-cw"></iconify-icon>
+</div>
+<div class="flex-1">
+<p class="text-sm font-medium">系统配置自动备份完成</p>
+<p class="text-xs text-slate-500">备份文件: config_20260516_0400.tar.gz</p>
+</div>
+<span class="text-xs text-slate-500">2小时前</span>
+</div>
+</div>
+</div>
+<div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+<div class="p-4 border-b border-slate-800 flex justify-between items-center">
+<h4 class="font-semibold text-slate-200">设备接入实时动态</h4>
+<span class="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] rounded uppercase font-bold tracking-wider">Live</span>
+</div>
+<div class="p-4 space-y-4 h-[240px] overflow-hidden relative">
+<div class="space-y-4" id="accessTicker">
+<!-- 动态内容 -->
+<div class="flex items-center justify-between text-sm py-1 border-b border-slate-800/50">
+<div class="flex items-center space-x-2">
+<iconify-icon class="text-green-500" icon="lucide:check-circle"></iconify-icon>
+<span>New Node: Beijing_DC_Router_04</span>
+</div>
+<span class="text-slate-500 font-mono">10.0.12.44</span>
+</div>
+<div class="flex items-center justify-between text-sm py-1 border-b border-slate-800/50">
+<div class="flex items-center space-x-2">
+<iconify-icon class="text-green-500" icon="lucide:check-circle"></iconify-icon>
+<span>New Node: Shanghai_Edge_FW_02</span>
+</div>
+<span class="text-slate-500 font-mono">172.16.5.11</span>
+</div>
+<div class="flex items-center justify-between text-sm py-1 border-b border-slate-800/50">
+<div class="flex items-center space-x-2">
+<iconify-icon class="text-green-500" icon="lucide:check-circle"></iconify-icon>
+<span>New Node: Shenzhen_Core_NAT_01</span>
+</div>
+<span class="text-slate-500 font-mono">192.168.8.1</span>
+</div>
+<div class="flex items-center justify-between text-sm py-1 border-b border-slate-800/50">
+<div class="flex items-center space-x-2">
+<iconify-icon class="text-green-500" icon="lucide:check-circle"></iconify-icon>
+<span>New Node: HK_Gateway_03</span>
+</div>
+<span class="text-slate-500 font-mono">103.24.12.8</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-slate-900 to-transparent"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- 2. 设备管理页 -->
+<section class="page-content space-y-6" id="page-devices">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div class="flex items-center space-x-4 flex-1 max-w-2xl">
+<div class="relative flex-1">
+<iconify-icon class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" icon="lucide:search"></iconify-icon>
+<input class="w-full bg-slate-900 border border-slate-800 rounded-lg py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="搜索设备名称、IP或备注..." type="text"/>
+</div>
+<select class="bg-slate-900 border border-slate-800 rounded-lg py-2 px-4 text-sm outline-none">
+<option>所有状态</option>
+<option>在线</option>
+<option>离线</option>
+<option>异常</option>
+</select>
+<select class="bg-slate-900 border border-slate-800 rounded-lg py-2 px-4 text-sm outline-none">
+<option>所有类型</option>
+<option>路由器</option>
+<option>防火墙</option>
+<option>网关</option>
+</select>
+</div>
+<div class="flex items-center space-x-3">
+<button class="px-4 py-2 bg-slate-800 text-slate-200 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors flex items-center space-x-2">
+<iconify-icon icon="lucide:trash-2"></iconify-icon>
+<span>批量删除</span>
+</button>
+<button class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition-colors flex items-center space-x-2 shadow-lg shadow-blue-500/20" onclick="toggleModal('deviceModal', true)">
+<iconify-icon icon="lucide:plus"></iconify-icon>
+<span>添加设备</span>
+</button>
+</div>
+</div>
+<div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-sm">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-slate-800/50 text-slate-400 text-xs uppercase tracking-wider">
+<th class="px-6 py-4 font-semibold"><input class="rounded border-slate-700 bg-slate-800" type="checkbox"/></th>
+<th class="px-6 py-4 font-semibold">设备名称</th>
+<th class="px-6 py-4 font-semibold">IP 地址</th>
+<th class="px-6 py-4 font-semibold">状态</th>
+<th class="px-6 py-4 font-semibold">协议类型</th>
+<th class="px-6 py-4 font-semibold">端口映射数</th>
+<th class="px-6 py-4 font-semibold">最后在线时间</th>
+<th class="px-6 py-4 font-semibold text-right">操作</th>
+</tr>
+</thead>
+<tbody class="text-sm divide-y divide-slate-800">
+<tr class="hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4"><input class="rounded border-slate-700 bg-slate-800" type="checkbox"/></td>
+<td class="px-6 py-4 font-medium">Core-Router-Beijing-01</td>
+<td class="px-6 py-4 font-mono text-slate-400">10.128.0.1</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-500/10 text-green-500">
+<span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span> 在线
+                                    </span>
+</td>
+<td class="px-6 py-4">H3C / NAT444</td>
+<td class="px-6 py-4">
+<div class="flex items-center space-x-2">
+<div class="flex-1 h-1.5 bg-slate-800 rounded-full w-20 overflow-hidden">
+<div class="h-full bg-blue-500 w-[65%]"></div>
+</div>
+<span class="text-xs text-slate-400">42.5k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-slate-500">2026-05-16 13:45:22</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:edit-3"></iconify-icon></button>
+<button class="text-slate-400 hover:text-blue-400" title="查看日志"><iconify-icon icon="lucide:terminal"></iconify-icon></button>
+<button class="text-slate-400 hover:text-red-400"><iconify-icon icon="lucide:trash-2"></iconify-icon></button>
+</td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4"><input class="rounded border-slate-700 bg-slate-800" type="checkbox"/></td>
+<td class="px-6 py-4 font-medium">Edge-FW-Shanghai-02</td>
+<td class="px-6 py-4 font-mono text-slate-400">172.16.10.5</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-500/10 text-green-500">
+<span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span> 在线
+                                    </span>
+</td>
+<td class="px-6 py-4">Fortinet / CGNAT</td>
+<td class="px-6 py-4">
+<div class="flex items-center space-x-2">
+<div class="flex-1 h-1.5 bg-slate-800 rounded-full w-20 overflow-hidden">
+<div class="h-full bg-orange-500 w-[88%]"></div>
+</div>
+<span class="text-xs text-slate-400">58.2k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-slate-500">2026-05-16 13:44:10</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:edit-3"></iconify-icon></button>
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:terminal"></iconify-icon></button>
+<button class="text-slate-400 hover:text-red-400"><iconify-icon icon="lucide:trash-2"></iconify-icon></button>
+</td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4"><input class="rounded border-slate-700 bg-slate-800" type="checkbox"/></td>
+<td class="px-6 py-4 font-medium">Cloud-Gateway-SZ-03</td>
+<td class="px-6 py-4 font-mono text-slate-400">192.168.50.11</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-500">
+<span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span> 离线
+                                    </span>
+</td>
+<td class="px-6 py-4">Huawei / NAT64</td>
+<td class="px-6 py-4">
+<div class="flex items-center space-x-2">
+<div class="flex-1 h-1.5 bg-slate-800 rounded-full w-20 overflow-hidden">
+<div class="h-full bg-slate-700 w-0"></div>
+</div>
+<span class="text-xs text-slate-400">0</span>
+</div>
+</td>
+<td class="px-6 py-4 text-slate-500">2026-05-15 22:12:05</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:edit-3"></iconify-icon></button>
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:terminal"></iconify-icon></button>
+<button class="text-slate-400 hover:text-red-400"><iconify-icon icon="lucide:trash-2"></iconify-icon></button>
+</td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors group">
+<td class="px-6 py-4"><input class="rounded border-slate-700 bg-slate-800" type="checkbox"/></td>
+<td class="px-6 py-4 font-medium">Test-Node-Lab-01</td>
+<td class="px-6 py-4 font-mono text-slate-400">10.0.0.254</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-500/10 text-orange-500">
+<span class="w-1.5 h-1.5 rounded-full bg-orange-500 mr-1.5"></span> 异常
+                                    </span>
+</td>
+<td class="px-6 py-4">Cisco / Static</td>
+<td class="px-6 py-4">
+<div class="flex items-center space-x-2">
+<div class="flex-1 h-1.5 bg-slate-800 rounded-full w-20 overflow-hidden">
+<div class="h-full bg-blue-500 w-[15%]"></div>
+</div>
+<span class="text-xs text-slate-400">1.2k</span>
+</div>
+</td>
+<td class="px-6 py-4 text-slate-500">2026-05-16 13:42:00</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:edit-3"></iconify-icon></button>
+<button class="text-slate-400 hover:text-blue-400"><iconify-icon icon="lucide:terminal"></iconify-icon></button>
+<button class="text-slate-400 hover:text-red-400"><iconify-icon icon="lucide:trash-2"></iconify-icon></button>
+</td>
+</tr>
+<!-- 更多行... -->
+</tbody>
+</table>
+<div class="p-4 border-t border-slate-800 flex items-center justify-between bg-slate-900/50">
+<span class="text-xs text-slate-500">显示第 1 到 4 条，共 1,284 条记录</span>
+<div class="flex items-center space-x-2">
+<button class="p-1 rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-white disabled:opacity-50" disabled="">
+<iconify-icon icon="lucide:chevron-left"></iconify-icon>
+</button>
+<button class="px-2 py-1 rounded bg-blue-600 text-xs font-medium">1</button>
+<button class="px-2 py-1 rounded bg-slate-800 text-xs font-medium hover:bg-slate-700">2</button>
+<button class="px-2 py-1 rounded bg-slate-800 text-xs font-medium hover:bg-slate-700">3</button>
+<span class="text-slate-500">...</span>
+<button class="px-2 py-1 rounded bg-slate-800 text-xs font-medium hover:bg-slate-700">128</button>
+<button class="p-1 rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-white">
+<iconify-icon icon="lucide:chevron-right"></iconify-icon>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. 实时日志页 -->
+<section class="page-content h-full flex flex-col space-y-4" id="page-realtime">
+<div class="flex items-center justify-between bg-slate-900 p-4 rounded-xl border border-slate-800">
+<div class="flex items-center space-x-4">
+<button class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-500 transition-colors flex items-center space-x-2" id="streamControl" onclick="toggleStreaming()">
+<iconify-icon icon="lucide:square" id="streamIcon"></iconify-icon>
+<span id="streamText">停止刷流</span>
+</button>
+<div class="flex items-center space-x-2 bg-slate-800 px-3 py-2 rounded-lg">
+<input checked="" class="rounded border-slate-700 bg-slate-900" id="autoScroll" type="checkbox"/>
+<label class="text-xs text-slate-300 cursor-pointer" for="autoScroll">自动滚动</label>
+</div>
+<div class="h-6 w-px bg-slate-700 mx-2"></div>
+<div class="flex items-center space-x-2">
+<span class="text-xs text-slate-400">级别筛选:</span>
+<div class="flex bg-slate-800 rounded-md p-0.5">
+<button class="px-2 py-1 text-[10px] bg-slate-700 rounded text-white">ALL</button>
+<button class="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-200">INFO</button>
+<button class="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-200">WARN</button>
+<button class="px-2 py-1 text-[10px] text-slate-400 hover:text-slate-200">ERROR</button>
+</div>
+</div>
+</div>
+<div class="flex items-center space-x-4">
+<div class="flex items-center space-x-4 text-xs">
+<div class="flex items-center space-x-1">
+<span class="text-slate-500">INFO:</span>
+<span class="text-blue-400 font-mono" id="infoCount">1,204</span>
+</div>
+<div class="flex items-center space-x-1">
+<span class="text-slate-500">WARN:</span>
+<span class="text-orange-400 font-mono" id="warnCount">42</span>
+</div>
+<div class="flex items-center space-x-1">
+<span class="text-slate-500">ERROR:</span>
+<span class="text-red-400 font-mono" id="errorCount">5</span>
+</div>
+</div>
+<button class="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors" title="导出日志">
+<iconify-icon icon="lucide:download"></iconify-icon>
+</button>
+</div>
+</div>
+<div class="flex-1 terminal-bg rounded-xl border border-slate-800 overflow-hidden flex flex-col font-mono text-sm">
+<div class="bg-slate-900 px-4 py-2 border-b border-slate-800 flex justify-between items-center">
+<div class="flex space-x-2">
+<div class="w-3 h-3 rounded-full bg-red-500/50"></div>
+<div class="w-3 h-3 rounded-full bg-orange-500/50"></div>
+<div class="w-3 h-3 rounded-full bg-green-500/50"></div>
+</div>
+<span class="text-[10px] text-slate-500 uppercase tracking-widest">NAT Stream Console v2.4.0</span>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar" id="logConsole">
+<!-- 初始日志内容 -->
+<div class="log-entry text-slate-500">
+                            [2026-05-16 13:50:01] <span class="text-blue-400">[INFO]</span> [System] Log streaming service started successfully.
+                        </div>
+<div class="log-entry text-slate-500">
+                            [2026-05-16 13:50:02] <span class="text-blue-400">[INFO]</span> [Core-Router-01] Connection established.
+                        </div>
+</div>
+</div>
+</section>
+<!-- 4. 日志查询页 -->
+<section class="page-content space-y-6" id="page-query">
+<div class="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="space-y-2">
+<label class="text-xs font-semibold text-slate-400 uppercase">时间范围</label>
+<div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+<iconify-icon class="text-slate-500 mr-2" icon="lucide:calendar"></iconify-icon>
+<input class="bg-transparent border-none text-sm outline-none w-full" type="text" value="2026-05-16 00:00 - 23:59"/>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-semibold text-slate-400 uppercase">选择设备</label>
+<select class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none">
+<option>全部设备</option>
+<option>Core-Router-Beijing-01</option>
+<option>Edge-FW-Shanghai-02</option>
+<option>Cloud-Gateway-SZ-03</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-semibold text-slate-400 uppercase">日志级别</label>
+<div class="flex space-x-2">
+<label class="flex items-center space-x-1 cursor-pointer">
+<input checked="" class="rounded bg-slate-950 border-slate-800" type="checkbox"/>
+<span class="text-xs text-blue-400">INFO</span>
+</label>
+<label class="flex items-center space-x-1 cursor-pointer">
+<input checked="" class="rounded bg-slate-950 border-slate-800" type="checkbox"/>
+<span class="text-xs text-orange-400">WARN</span>
+</label>
+<label class="flex items-center space-x-1 cursor-pointer">
+<input class="rounded bg-slate-950 border-slate-800" type="checkbox"/>
+<span class="text-xs text-red-400">ERROR</span>
+</label>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-xs font-semibold text-slate-400 uppercase">关键词搜索</label>
+<input class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="IP, 端口, 用户名..." type="text"/>
+</div>
+</div>
+<div class="flex justify-end space-x-4 border-t border-slate-800 pt-6">
+<button class="px-6 py-2 bg-slate-800 text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">重置条件</button>
+<button class="px-8 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20">开始查询</button>
+</div>
+</div>
+<div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+<div class="p-4 border-b border-slate-800 flex justify-between items-center">
+<h4 class="font-semibold text-slate-200">查询结果 <span class="text-xs font-normal text-slate-500 ml-2">(找到 2,412 条记录)</span></h4>
+<button class="flex items-center space-x-2 text-xs text-blue-400 bg-blue-400/10 px-3 py-1.5 rounded-md hover:bg-blue-400/20">
+<iconify-icon icon="lucide:file-down"></iconify-icon>
+<span>导出 CSV</span>
+</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse font-mono">
+<thead>
+<tr class="bg-slate-800/30 text-slate-500 text-[10px] uppercase tracking-widest">
+<th class="px-6 py-3 font-semibold">时间戳</th>
+<th class="px-6 py-3 font-semibold">来源设备</th>
+<th class="px-6 py-3 font-semibold">级别</th>
+<th class="px-6 py-3 font-semibold">日志摘要</th>
+<th class="px-6 py-3 font-semibold text-right">详情</th>
+</tr>
+</thead>
+<tbody class="text-xs divide-y divide-slate-800">
+<tr class="hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-3 text-slate-400">2026-05-16 12:00:01.442</td>
+<td class="px-6 py-3 text-slate-200">BJ-CR-01</td>
+<td class="px-6 py-3"><span class="text-blue-400">INFO</span></td>
+<td class="px-6 py-3 text-slate-400 truncate max-w-md">NAT Session Created: 192.168.1.10:54221 -&gt; 202.96.128.1:443 (TCP)</td>
+<td class="px-6 py-3 text-right"><button class="text-blue-500 hover:underline">查看</button></td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-3 text-slate-400">2026-05-16 11:59:58.102</td>
+<td class="px-6 py-3 text-slate-200">SH-FW-02</td>
+<td class="px-6 py-3"><span class="text-orange-400">WARN</span></td>
+<td class="px-6 py-3 text-slate-400 truncate max-w-md">Port Mapping Conflict detected on 172.16.5.11:8080</td>
+<td class="px-6 py-3 text-right"><button class="text-blue-500 hover:underline">查看</button></td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-3 text-slate-400">2026-05-16 11:58:33.991</td>
+<td class="px-6 py-3 text-slate-200">BJ-CR-01</td>
+<td class="px-6 py-3"><span class="text-blue-400">INFO</span></td>
+<td class="px-6 py-3 text-slate-400 truncate max-w-md">User 'oper_john' logged in from 10.0.12.55 via SSH</td>
+<td class="px-6 py-3 text-right"><button class="text-blue-500 hover:underline">查看</button></td>
+</tr>
+<tr class="hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-3 text-slate-400">2026-05-16 11:57:21.005</td>
+<td class="px-6 py-3 text-slate-200">SZ-GW-03</td>
+<td class="px-6 py-3"><span class="text-red-400">ERROR</span></td>
+<td class="px-6 py-3 text-slate-400 truncate max-w-md">Hardware Watchdog Timeout - Interface Eth0/1 flap</td>
+<td class="px-6 py-3 text-right"><button class="text-blue-500 hover:underline">查看</button></td>
+</tr>
+<!-- 更多行... -->
+</tbody>
+</table>
+</div>
+<div class="p-4 border-t border-slate-800 flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<select class="bg-slate-800 border-none text-[10px] rounded px-2 py-1 outline-none">
+<option>15 条/页</option>
+<option>50 条/页</option>
+<option>100 条/页</option>
+</select>
+</div>
+<div class="flex items-center space-x-2">
+<button class="p-1 rounded bg-slate-800 text-slate-500"><iconify-icon icon="lucide:chevron-left"></iconify-icon></button>
+<button class="px-2 py-1 rounded bg-blue-600 text-xs">1</button>
+<button class="px-2 py-1 rounded bg-slate-800 text-xs">2</button>
+<button class="px-2 py-1 rounded bg-slate-800 text-xs">3</button>
+<button class="p-1 rounded bg-slate-800 text-slate-500"><iconify-icon icon="lucide:chevron-right"></iconify-icon></button>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- 弹窗: 添加设备 -->
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm hidden" id="deviceModal">
+<div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+<div class="p-6 border-b border-slate-800 flex justify-between items-center">
+<h3 class="text-lg font-bold">添加新 NAT 设备</h3>
+<button class="text-slate-400 hover:text-white" onclick="toggleModal('deviceModal', false)">
+<iconify-icon class="text-xl" icon="lucide:x"></iconify-icon>
+</button>
+</div>
+<div class="p-6 space-y-4">
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-xs font-medium text-slate-400">设备名称</label>
+<input class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="例如: BJ-Core-01" type="text"/>
+</div>
+<div class="space-y-1.5">
+<label class="text-xs font-medium text-slate-400">IP 地址</label>
+<input class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="10.0.0.1" type="text"/>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-xs font-medium text-slate-400">协议类型</label>
+<select class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none">
+<option>NAT444</option>
+<option>CGNAT</option>
+<option>Static NAT</option>
+<option>NAT64</option>
+</select>
+</div>
+<div class="space-y-1.5">
+<label class="text-xs font-medium text-slate-400">接入端口范围</label>
+<input class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="1024-65535" type="text"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-xs font-medium text-slate-400">备注信息</label>
+<textarea class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500" placeholder="输入设备位置、负责人等备注..." rows="3"></textarea>
+</div>
+<div class="flex items-center space-x-2">
+<input checked="" class="rounded bg-slate-950 border-slate-800" id="enableAuto" type="checkbox"/>
+<label class="text-xs text-slate-400" for="enableAuto">立即启动日志采集任务</label>
+</div>
+</div>
+<div class="p-6 bg-slate-950 flex justify-end space-x-4">
+<button class="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors" onclick="toggleModal('deviceModal', false)">取消</button>
+<button class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition-colors" onclick="toggleModal('deviceModal', false)">确认添加</button>
+</div>
+</div>
+</div>
+<!-- JavaScript 逻辑 -->
+<script>
+        // 页面切换逻辑
+        function switchPage(pageId) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
+            // 显示目标页面
+            document.getElementById('page-' + pageId).classList.add('active');
+            
+            // 更新导航样式
+            document.querySelectorAll('.nav-item').forEach(n => {
+                n.classList.remove('bg-slate-800', 'text-blue-400');
+                n.classList.add('text-slate-400');
+            });
+            document.getElementById('nav-' + pageId).classList.add('bg-slate-800', 'text-blue-400');
+            document.getElementById('nav-' + pageId).classList.remove('text-slate-400');
+
+            // 更新标题
+            const titles = {
+                'dashboard': '概览工作台',
+                'devices': '设备接入管理',
+                'realtime': '实时日志刷流',
+                'query': '高级日志查询'
+            };
+            document.getElementById('page-title').innerText = titles[pageId];
+
+            // 如果切换到概览页，重新渲染图表
+            if(pageId === 'dashboard') {
+                setTimeout(initCharts, 100);
+            }
+        }
+
+        // 弹窗控制
+        function toggleModal(modalId, show) {
+            const modal = document.getElementById(modalId);
+            if (show) {
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        // 实时刷流模拟
+        let streamingActive = true;
+        let streamInterval;
+        const logConsole = document.getElementById('logConsole');
+        const autoScroll = document.getElementById('autoScroll');
+
+        const mockDevices = ['BJ-CR-01', 'SH-FW-02', 'SZ-GW-03', 'HK-EDGE-01'];
+        const mockLevels = ['INFO', 'WARN', 'ERROR'];
+        const mockEvents = [
+            'NAT Session Created: 192.168.1.{n} -> 202.96.128.{m}:443',
+            'Port Mapping Released: Internal port {p} reclaimed',
+            'Traffic threshold exceeded on interface Eth1/0',
+            'User session authenticated via RADIUS',
+            'ACL Policy Match: Deny from 10.5.2.14 to WAN_ZONE',
+            'NAT Pool utilization at {u}%',
+            'Keep-alive heartbeat received from 10.0.12.{n}'
+        ];
+
+        function addLog() {
+            if (!streamingActive) return;
+
+            const now = new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '.' + Math.floor(Math.random() * 999);
+            const device = mockDevices[Math.floor(Math.random() * mockDevices.length)];
+            const level = mockLevels[Math.random() > 0.9 ? (Math.random() > 0.5 ? 2 : 1) : 0];
+            const eventTemplate = mockEvents[Math.floor(Math.random() * mockEvents.length)];
+            const event = eventTemplate
+                .replace('{n}', Math.floor(Math.random() * 254))
+                .replace('{m}', Math.floor(Math.random() * 254))
+                .replace('{p}', Math.floor(Math.random() * 65535))
+                .replace('{u}', Math.floor(Math.random() * 100));
+
+            const levelClass = level === 'INFO' ? 'text-blue-400' : (level === 'WARN' ? 'text-orange-400' : 'text-red-400');
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry text-slate-500 py-0.5 border-b border-transparent hover:border-slate-800 transition-colors';
+            logEntry.innerHTML = `[2026-05-16 ${now}] <span class="${levelClass}">[${level}]</span> [${device}] ${event}`;
+            
+            logConsole.appendChild(logEntry);
+
+            // 自动滚动
+            if (autoScroll.checked) {
+                logConsole.scrollTop = logConsole.scrollHeight;
+            }
+
+            // 限制日志条数防止内存溢出
+            if (logConsole.children.length > 500) {
+                logConsole.removeChild(logConsole.firstChild);
+            }
+        }
+
+        function toggleStreaming() {
+            streamingActive = !streamingActive;
+            const btn = document.getElementById('streamControl');
+            const icon = document.getElementById('streamIcon');
+            const text = document.getElementById('streamText');
+
+            if (streamingActive) {
+                btn.classList.replace('bg-green-600', 'bg-red-600');
+                btn.classList.replace('hover:bg-green-500', 'hover:bg-red-500');
+                icon.setAttribute('icon', 'lucide:square');
+                text.innerText = '停止刷流';
+            } else {
+                btn.classList.replace('bg-red-600', 'bg-green-600');
+                btn.classList.replace('hover:bg-red-500', 'hover:bg-green-500');
+                icon.setAttribute('icon', 'lucide:play');
+                text.innerText = '开始刷流';
+            }
+        }
+
+        // 图表初始化
+        function initCharts() {
+            // 趋势图
+            const trendChart = echarts.init(document.getElementById('trendChart'));
+            const trendOption = {
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'axis' },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '23:59'],
+                    axisLine: { lineStyle: { color: '#334155' } },
+                    axisLabel: { color: '#94a3b8' }
+                },
+                yAxis: {
+                    type: 'value',
+                    splitLine: { lineStyle: { color: '#1e293b' } },
+                    axisLabel: { color: '#94a3b8' }
+                },
+                series: [{
+                    name: '日志量',
+                    type: 'line',
+                    smooth: true,
+                    data: [120, 132, 401, 834, 1290, 930, 810],
+                    itemStyle: { color: '#3b82f6' },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(59, 130, 246, 0.3)' },
+                            { offset: 1, color: 'rgba(59, 130, 246, 0)' }
+                        ])
+                    }
+                }]
+            };
+            trendChart.setOption(trendOption);
+
+            // 状态饼图
+            const statusChart = echarts.init(document.getElementById('statusChart'));
+            const statusOption = {
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'item' },
+                legend: { bottom: '5%', left: 'center', textStyle: { color: '#94a3b8' } },
+                series: [{
+                    name: '设备状态',
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    avoidLabelOverlap: false,
+                    itemStyle: { borderRadius: 10, borderColor: '#0f172a', borderWidth: 2 },
+                    label: { show: false },
+                    data: [
+                        { value: 1256, name: '在线', itemStyle: { color: '#22c55e' } },
+                        { value: 12, name: '异常', itemStyle: { color: '#f97316' } },
+                        { value: 16, name: '离线', itemStyle: { color: '#ef4444' } }
+                    ]
+                }]
+            };
+            statusChart.setOption(statusOption);
+
+            window.addEventListener('resize', () => {
+                trendChart.resize();
+                statusChart.resize();
+            });
+        }
+
+        // 启动逻辑
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            // 启动日志模拟
+            streamInterval = setInterval(addLog, 800);
+            
+            // 动态接入列表滚动效果
+            const ticker = document.getElementById('accessTicker');
+            setInterval(() => {
+                if(ticker.children.length > 0) {
+                    const first = ticker.children[0];
+                    first.classList.add('opacity-0', '-translate-y-4', 'transition-all', 'duration-500');
+                    setTimeout(() => {
+                        ticker.appendChild(first);
+                        first.classList.remove('opacity-0', '-translate-y-4');
+                    }, 500);
+                }
+            }, 3000);
+        });
+    </script>
+</body>
+</html>

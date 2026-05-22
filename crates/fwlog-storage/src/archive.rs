@@ -98,7 +98,8 @@ mod tests {
         let parquet = dir.path().join("events.parquet");
         std::fs::write(&parquet, b"root").unwrap();
 
-        let removed = prune_archive_files(dir.path(), Duration::from_secs(365 * 24 * 3600)).unwrap();
+        let removed =
+            prune_archive_files(dir.path(), Duration::from_secs(365 * 24 * 3600)).unwrap();
 
         assert_eq!(removed, 0);
         assert!(parquet.exists());

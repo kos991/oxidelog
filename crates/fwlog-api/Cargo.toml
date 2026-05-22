@@ -9,6 +9,7 @@ anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
 csv.workspace = true
+duckdb.workspace = true
 flate2.workspace = true
 fwlog-adapter = { path = "../fwlog-adapter" }
 fwlog-domain = { path = "../fwlog-domain" }
@@ -20,6 +21,7 @@ tempfile.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
+xdb-parse.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]

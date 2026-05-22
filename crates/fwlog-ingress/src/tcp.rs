@@ -10,7 +10,10 @@ pub async fn run_tcp_listener(addr: String, sender: Sender<RawLog>) -> Result<()
     handle.await.context("tcp listener task join")?
 }
 
-pub async fn start_tcp_listener(addr: String, sender: Sender<RawLog>) -> Result<JoinHandle<Result<()>>> {
+pub async fn start_tcp_listener(
+    addr: String,
+    sender: Sender<RawLog>,
+) -> Result<JoinHandle<Result<()>>> {
     start_tcp_listener_with_metrics(addr, sender, RuntimeMetrics::default()).await
 }
 

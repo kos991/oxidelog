@@ -15,7 +15,10 @@ pub struct FrozenFile {
 
 pub fn write_frozen_raw(output_path: impl AsRef<Path>, records: &[String]) -> Result<FrozenFile> {
     let output_path = output_path.as_ref();
-    if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)
             .with_context(|| format!("create frozen parent directory {}", parent.display()))?;
     }
@@ -84,8 +87,9 @@ pub fn prune_frozen_files(dir: impl AsRef<Path>, retention: Duration) -> Result<
             .modified()
             .with_context(|| format!("read frozen modified time {}", file.path.display()))?;
         if modified < cutoff {
-            fs::remove_file(&file.path)
-                .with_context(|| format!("remove expired frozen archive {}", file.path.display()))?;
+            fs::remove_file(&file.path).with_context(|| {
+                format!("remove expired frozen archive {}", file.path.display())
+            })?;
             removed += 1;
         }
     }

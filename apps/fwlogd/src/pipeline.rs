@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::{path::PathBuf, thread, time::Duration};
 
 use anyhow::{Context, Result};
@@ -8,10 +7,13 @@ use fwlog_ingress::{
     start_tcp_listener_with_metrics, start_udp_listener_with_metrics, UdpDropCounter,
 };
 use fwlog_spool::SegmentWriter;
-use fwlog_storage::{prune_archive_files, prune_frozen_files, write_frozen_raw, DuckDbStore};
+use fwlog_storage::{
+    run_storage_governor, DuckDbStore, GovernorArchiveConfig, GovernorConfig,
+    GovernorLifecycleConfig,
+};
 use tracing::{error, info};
 
-use crate::{ArchiveConfig, Config};
+use crate::{replay::replay_spool_on_startup, ArchiveConfig, Config, LifecycleConfig};
 
 static ARCHIVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -29,6 +31,7 @@ pub async fn run(config: Config) -> Result<()> {
     let metrics = RuntimeMetrics::default();
     let api_token = config.auth.api_token.clone().filter(|token| !token.is_empty());
     let archive_config = config.archive.clone();
+    let lifecycle_config = config.lifecycle.clone();
 
     let mut api_store = DuckDbStore::open(&duckdb_path)?;
     api_store.insert_batch(&[])?;
@@ -50,20 +53,41 @@ pub async fn run(config: Config) -> Result<()> {
         }
     });
 
-    if archive_config.enabled {
-        let scheduler_duckdb_path = duckdb_path.clone();
-        let scheduler_parquet_dir = parquet_dir.clone();
-        let scheduler_frozen_dir = frozen_dir.clone();
+    // Start unified storage governor (handles both archive and lifecycle)
+    if archive_config.enabled || lifecycle_config.enabled {
+        let governor_duckdb_path = duckdb_path.clone();
+        let governor_parquet_dir = parquet_dir.clone();
+        let governor_frozen_dir = frozen_dir.clone();
         tokio::spawn(async move {
-            run_archive_scheduler(
-                scheduler_duckdb_path,
-                scheduler_parquet_dir,
-                scheduler_frozen_dir,
-                archive_config,
+            run_storage_governor(
+                governor_duckdb_path,
+                governor_parquet_dir,
+                governor_frozen_dir,
+                GovernorConfig {
+                    archive: GovernorArchiveConfig {
+                        enabled: archive_config.enabled,
+                        interval_seconds: archive_config.interval_seconds,
+                        batch_limit: archive_config.batch_limit,
+                        parquet_retention_days: archive_config.parquet_retention_days,
+                        frozen_retention_days: archive_config.frozen_retention_days,
+                    },
+                    lifecycle: GovernorLifecycleConfig {
+                        enabled: lifecycle_config.enabled,
+                        hot_limit: lifecycle_config.hot_limit,
+                        interval_seconds: lifecycle_config.interval_seconds,
+                        drop_parsed_raw: lifecycle_config.drop_parsed_raw,
+                    },
+                },
             )
             .await;
         });
     }
+
+    // Spool cleanup scheduler
+    let cleanup_spool_dir = spool_dir.clone();
+    tokio::spawn(async move {
+        run_spool_cleanup_scheduler(cleanup_spool_dir).await;
+    });
 
     let _tcp_listener =
         start_tcp_listener_with_metrics(tcp_addr.clone(), tx.clone(), metrics.clone()).await?;
@@ -95,26 +119,54 @@ fn run_worker(
     flush_interval: Duration,
     metrics: RuntimeMetrics,
 ) -> Result<()> {
+    use rayon::prelude::*;
+
     let adapter = SangforAdapter;
-    let mut store = DuckDbStore::open(duckdb_path)?;
+    let mut store = DuckDbStore::open(&duckdb_path)?;
+
+    // Replay spool on startup for crash recovery
+    match replay_spool_on_startup(
+        spool_dir.clone(),
+        duckdb_path.clone(),
+        &adapter,
+        &metrics,
+    ) {
+        Ok(report) => {
+            if report.segments_found > 0 {
+                info!(
+                    segments_found = report.segments_found,
+                    segments_replayed = report.segments_replayed,
+                    records_replayed = report.records_replayed,
+                    events_stored = report.events_stored,
+                    segments_failed = report.segments_failed,
+                    "spool replay completed"
+                );
+            }
+        }
+        Err(err) => {
+            error!(error = %err, "spool replay failed, continuing with normal operation");
+            metrics.inc_worker_errors();
+        }
+    }
+
     let mut spool = SegmentWriter::create(spool_dir, "segment-local")?;
-    let mut batch = Vec::with_capacity(batch_size);
+    let mut raw_batch = Vec::with_capacity(batch_size);
 
     loop {
         match rx.recv_timeout(flush_interval) {
             Ok(raw) => {
                 let _record = spool.append(raw.clone()).context("append raw log to spool")?;
                 metrics.inc_spool_written();
-                batch.push(adapter.parse(raw));
-                if batch.len() >= batch_size {
-                    flush(&mut store, &mut batch, &metrics)?;
+                raw_batch.push(raw);
+                if raw_batch.len() >= batch_size {
+                    flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
                 }
             }
             Err(flume::RecvTimeoutError::Timeout) => {
-                flush(&mut store, &mut batch, &metrics)?;
+                flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
             }
             Err(flume::RecvTimeoutError::Disconnected) => {
-                flush(&mut store, &mut batch, &metrics)?;
+                flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
                 break;
             }
         }
@@ -123,77 +175,61 @@ fn run_worker(
     Ok(())
 }
 
-fn flush(
+fn flush_parallel(
+    adapter: &SangforAdapter,
     store: &mut DuckDbStore,
-    batch: &mut Vec<fwlog_domain::CanonicalEvent>,
+    raw_batch: &mut Vec<fwlog_domain::RawLog>,
     metrics: &RuntimeMetrics,
 ) -> Result<()> {
-    if batch.is_empty() {
+    use rayon::prelude::*;
+
+    if raw_batch.is_empty() {
         return Ok(());
     }
-    let inserted = store.insert_batch(batch)?;
-    metrics.add_events_stored(inserted as u64);
-    metrics.inc_batches_stored();
-    info!(inserted, "stored event batch");
-    batch.clear();
-    Ok(())
-}
 
-async fn run_archive_scheduler(
-    duckdb_path: PathBuf,
-    parquet_dir: PathBuf,
-    frozen_dir: PathBuf,
-    config: ArchiveConfig,
-) {
-    let interval = Duration::from_secs(config.interval_seconds.max(60));
-    loop {
-        tokio::time::sleep(interval).await;
-        if let Err(err) = run_archive_cycle(&duckdb_path, &parquet_dir, &frozen_dir, &config) {
-            error!(error = %err, "archive cycle failed");
-        }
-    }
-}
+    let parse_start = std::time::Instant::now();
 
-fn run_archive_cycle(
-    duckdb_path: &PathBuf,
-    parquet_dir: &PathBuf,
-    frozen_dir: &PathBuf,
-    config: &ArchiveConfig,
-) -> Result<()> {
-    let store = DuckDbStore::open(duckdb_path)?;
-    let stamp = archive_stamp();
-    let parquet = parquet_dir.join(format!("events-{stamp}.parquet"));
-    let events = store.query_recent(config.batch_limit.max(1))?;
-    let parquet_file = store.archive_events_parquet(&parquet, &events)?;
+    // Parallel parsing
+    let events: Vec<_> = raw_batch
+        .par_iter()
+        .map(|raw| adapter.parse(raw.clone()))
+        .collect();
 
-    let raw_lines = events.into_iter().map(|event| event.raw).collect::<Vec<_>>();
-    let frozen = frozen_dir.join(format!("frozen-{stamp}.raw.zst"));
-    let frozen_file = write_frozen_raw(&frozen, &raw_lines)?;
+    let parse_elapsed = parse_start.elapsed();
 
-    let parquet_removed = prune_archive_files(
-        parquet_dir,
-        Duration::from_secs(config.parquet_retention_days.max(1) * 24 * 3600),
-    )?;
-    let frozen_removed = prune_frozen_files(
-        frozen_dir,
-        Duration::from_secs(config.frozen_retention_days.max(1) * 24 * 3600),
-    )?;
+    // Sequential write to DuckDB
+    let write_start = std::time::Instant::now();
+    let inserted = store.insert_batch(&events)?;
+    let write_elapsed = write_start.elapsed();
+
+    metrics.add_events_written(inserted);
 
     info!(
-        parquet_path = %parquet_file.path.display(),
-        frozen_path = %frozen_file.path.display(),
-        parquet_removed,
-        frozen_removed,
-        "archive cycle completed"
+        "flushed batch: parsed={} inserted={} parse_ms={:.1} write_ms={:.1} total_ms={:.1}",
+        raw_batch.len(),
+        inserted,
+        parse_elapsed.as_secs_f64() * 1000.0,
+        write_elapsed.as_secs_f64() * 1000.0,
+        (parse_elapsed + write_elapsed).as_secs_f64() * 1000.0
     );
+
+    raw_batch.clear();
     Ok(())
 }
 
-fn archive_stamp() -> String {
-    let sequence = ARCHIVE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    format!(
-        "{}-{:06}",
-        chrono::Utc::now().format("%Y%m%d-%H%M%S%.6f"),
-        sequence % 1_000_000
-    )
+async fn run_spool_cleanup_scheduler(spool_dir: PathBuf) {
+    let interval = Duration::from_secs(3600);
+    loop {
+        tokio::time::sleep(interval).await;
+        match fwlog_spool::cleanup_committed_segments(&spool_dir) {
+            Ok(deleted) => {
+                if deleted > 0 {
+                    info!(deleted, "cleaned up committed spool segments");
+                }
+            }
+            Err(err) => {
+                error!(error = %err, "spool cleanup failed");
+            }
+        }
+    }
 }

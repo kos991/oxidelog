@@ -1,0 +1,79 @@
+<h2>OxideLog 前端重设计：先定信息架构</h2>
+<p class="subtitle">请选择更像你想要的控制台骨架。这里先看结构和工作流，不看最终视觉细节。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A · 运维驾驶舱优先</div>
+        <div class="mockup-body">
+          <div class="mock-nav">OxideLog · 状态 / 日志 / 设备 / 解析器 / 归档</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0">
+            <div class="placeholder">今日日志</div>
+            <div class="placeholder">解析成功率</div>
+            <div class="placeholder">Worker 错误</div>
+            <div class="placeholder">归档容量</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:10px">
+            <div class="placeholder" style="height:150px">实时流量趋势 + 最近原始日志</div>
+            <div class="placeholder" style="height:150px">异常解析 / 待准入 / 活跃设备</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · 总览先行</h3>
+      <p>首页像 NOC 大屏的压缩版，先回答“系统现在是否健康”。适合日常值守。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B · 检索工作台优先</div>
+        <div class="mockup-body">
+          <div style="display:grid;grid-template-columns:280px 1fr;gap:10px">
+            <div class="mock-sidebar">
+              查询条件<br>时间范围<br>设备<br>源/目的 IP<br>协议/动作<br>热库/冷库
+            </div>
+            <div>
+              <div class="placeholder" style="height:64px">查询栏 + 快捷筛选 + 导出</div>
+              <div class="placeholder" style="height:210px;margin-top:10px">统一结果表：热库 + 冷库 + 归档路径</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · 查日志先行</h3>
+      <p>把“找日志、追溯、导出”作为第一屏核心。适合排障和审计人员高频使用。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C · 解析引擎运营台</div>
+        <div class="mockup-body">
+          <div style="display:grid;grid-template-columns:220px 1fr;gap:10px">
+            <div class="mock-sidebar">解析器健康<br>自学习规则<br>诊断样本<br>Scope 状态<br>回滚/禁用</div>
+            <div style="display:grid;gap:8px">
+              <div class="placeholder">Active / Shadow / Disabled / Quarantine 指标</div>
+              <div class="placeholder" style="height:92px">规则生命周期看板</div>
+              <div class="placeholder" style="height:92px">诊断样本和修复动作</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · 自学习引擎先行</h3>
+      <p>围绕解析质量、规则状态、回滚风险来组织。适合现在这个自学习引擎版本的验收。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的建议</h3>
+  <p>B 作为主重设计方向，A 做首页，C 做解析器页的二级工作台。原因是日志平台最核心动作还是检索和追溯；解析引擎能力要强，但不应该挤占所有用户的第一屏。</p>
+</div>

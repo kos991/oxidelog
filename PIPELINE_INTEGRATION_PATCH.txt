@@ -1,0 +1,95 @@
+// Add this to apps/fwlogd/src/pipeline.rs
+
+// ============= IMPORTS (add to existing imports) =============
+use std::sync::atomic::{AtomicU64, Ordering};
+use crate::replay::replay_spool_on_startup;
+
+// ============= IN run_worker() FUNCTION =============
+// Add this BEFORE creating SegmentWriter (around line 100-105)
+
+fn run_worker(
+    rx: flume::Receiver<fwlog_domain::RawLog>,
+    duckdb_path: std::path::PathBuf,
+    spool_dir: std::path::PathBuf,
+    batch_size: usize,
+    flush_interval: Duration,
+    metrics: RuntimeMetrics,
+) -> Result<()> {
+    let adapter = SangforAdapter;
+    let mut store = DuckDbStore::open(&duckdb_path)?;
+
+    // ===== ADD REPLAY HERE =====
+    match replay_spool_on_startup(
+        spool_dir.clone(),
+        duckdb_path.clone(),
+        &adapter,
+        &metrics,
+    ) {
+        Ok(report) => {
+            if report.segments_found > 0 {
+                info!(
+                    segments_found = report.segments_found,
+                    segments_replayed = report.segments_replayed,
+                    records_replayed = report.records_replayed,
+                    events_stored = report.events_stored,
+                    segments_failed = report.segments_failed,
+                    "spool replay completed"
+                );
+            }
+        }
+        Err(err) => {
+            error!(error = %err, "spool replay failed, continuing with normal operation");
+            metrics.inc_worker_errors();
+        }
+    }
+    // ===== END REPLAY =====
+
+    let mut spool = SegmentWriter::create(spool_dir, "segment-local")?;
+    let mut batch = Vec::with_capacity(batch_size);
+
+    // ... rest of function
+}
+
+// ============= IN run() FUNCTION =============
+// Add this AFTER the archive scheduler (around line 68)
+
+    if archive_config.enabled {
+        let scheduler_duckdb_path = duckdb_path.clone();
+        let scheduler_parquet_dir = parquet_dir.clone();
+        let scheduler_frozen_dir = frozen_dir.clone();
+        tokio::spawn(async move {
+            run_archive_scheduler(
+                scheduler_duckdb_path,
+                scheduler_parquet_dir,
+                scheduler_frozen_dir,
+                archive_config,
+            )
+            .await;
+        });
+    }
+
+    // ===== ADD CLEANUP SCHEDULER HERE =====
+    let cleanup_spool_dir = spool_dir.clone();
+    tokio::spawn(async move {
+        run_spool_cleanup_scheduler(cleanup_spool_dir).await;
+    });
+    // ===== END CLEANUP SCHEDULER =====
+
+// ============= ADD NEW FUNCTION AT END OF FILE =============
+
+async fn run_spool_cleanup_scheduler(spool_dir: PathBuf) {
+    let interval = Duration::from_secs(3600); // 1 hour
+    loop {
+        tokio::time::sleep(interval).await;
+        match fwlog_spool::cleanup_committed_segments(&spool_dir) {
+            Ok(deleted) => {
+                if deleted > 0 {
+                    info!(deleted, "cleaned up committed spool segments");
+                }
+            }
+            Err(err) => {
+                error!(error = %err, "spool cleanup failed");
+            }
+        }
+    }
+}

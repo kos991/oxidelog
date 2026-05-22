@@ -63,7 +63,10 @@ async fn serve_udp_listener(
     let mut buf = vec![0_u8; 65_535];
 
     loop {
-        let (len, peer) = socket.recv_from(&mut buf).await.context("receive udp datagram")?;
+        let (len, peer) = socket
+            .recv_from(&mut buf)
+            .await
+            .context("receive udp datagram")?;
         metrics.inc_udp_received();
         let line = String::from_utf8_lossy(&buf[..len]).to_string();
         let raw = RawLog::new(format!("udp://{peer}"), line);

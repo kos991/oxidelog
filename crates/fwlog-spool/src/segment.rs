@@ -17,6 +17,14 @@ pub struct SpoolRecord {
     pub raw: String,
 }
 
+#[derive(Serialize)]
+struct BorrowedSpoolRecord<'a> {
+    offset: u64,
+    ingest_time: DateTime<Utc>,
+    source_addr: &'a str,
+    raw: &'a str,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SpoolCheckpoint {
     pub committed_offset: u64,
@@ -58,8 +66,26 @@ impl SegmentWriter {
         };
         self.next_offset += 1;
         serde_json::to_writer(&mut self.writer, &record).context("serialize spool record")?;
-        self.writer.write_all(b"\n").context("write spool newline")?;
+        self.writer
+            .write_all(b"\n")
+            .context("write spool newline")?;
         Ok(record)
+    }
+
+    pub fn append_ref(&mut self, raw: &RawLog) -> Result<u64> {
+        let offset = self.next_offset;
+        let record = BorrowedSpoolRecord {
+            offset,
+            ingest_time: raw.ingest_time,
+            source_addr: &raw.source_addr,
+            raw: &raw.raw,
+        };
+        self.next_offset += 1;
+        serde_json::to_writer(&mut self.writer, &record).context("serialize spool record")?;
+        self.writer
+            .write_all(b"\n")
+            .context("write spool newline")?;
+        Ok(offset)
     }
 
     pub fn seal(mut self) -> Result<PathBuf> {
@@ -121,7 +147,8 @@ mod tests {
     #[test]
     fn appending_three_raw_logs_writes_three_jsonl_records() {
         let dir = tempfile::tempdir().unwrap();
-        let mut writer = SegmentWriter::create(dir.path(), "segment-20260515-000000-000001").unwrap();
+        let mut writer =
+            SegmentWriter::create(dir.path(), "segment-20260515-000000-000001").unwrap();
 
         writer.append(raw("a")).unwrap();
         writer.append(raw("b")).unwrap();
@@ -139,7 +166,8 @@ mod tests {
     #[test]
     fn checkpoint_after_line_two_replays_only_line_three() {
         let dir = tempfile::tempdir().unwrap();
-        let mut writer = SegmentWriter::create(dir.path(), "segment-20260515-000000-000002").unwrap();
+        let mut writer =
+            SegmentWriter::create(dir.path(), "segment-20260515-000000-000002").unwrap();
 
         writer.append(raw("a")).unwrap();
         writer.append(raw("b")).unwrap();
@@ -147,9 +175,29 @@ mod tests {
         let sealed = writer.seal().unwrap();
 
         let records = SegmentReader::open(sealed)
-            .read_after(SpoolCheckpoint { committed_offset: 2 })
+            .read_after(SpoolCheckpoint {
+                committed_offset: 2,
+            })
             .unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].raw, "c");
+    }
+
+    #[test]
+    fn append_ref_writes_without_consuming_raw_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer =
+            SegmentWriter::create(dir.path(), "segment-20260515-000000-000003").unwrap();
+        let raw = raw("borrowed");
+
+        let offset = writer.append_ref(&raw).unwrap();
+        assert_eq!(offset, 1);
+        assert_eq!(raw.raw, "borrowed");
+
+        let sealed = writer.seal().unwrap();
+        let records = SegmentReader::open(sealed)
+            .read_after(SpoolCheckpoint::default())
+            .unwrap();
+        assert_eq!(records[0].raw, "borrowed");
     }
 }

@@ -1,0 +1,26 @@
+﻿[server]
+api_addr = "127.0.0.1:28080"
+tcp_addr = "127.0.0.1:2514"
+udp_addr = "127.0.0.1:2515"
+
+[data]
+root = "/tmp/oxidelog-test"
+duckdb_path = "/tmp/oxidelog-test/duckdb/oxidelog.duckdb"
+spool_dir = "/tmp/oxidelog-test/spool"
+export_dir = "/tmp/oxidelog-test/export"
+parquet_dir = "/tmp/oxidelog-test/parquet"
+frozen_dir = "/tmp/oxidelog-test/frozen"
+
+[pipeline]
+ingress_queue = 1000
+batch_size = 100
+flush_interval_ms = 1000
+
+[auth]
+api_token = ""
+
+[archive]
+enabled = false
+
+[lifecycle]
+enabled = false
