@@ -15,8 +15,6 @@ use tracing::{error, info};
 
 use crate::{replay::replay_spool_on_startup, ArchiveConfig, Config, LifecycleConfig};
 
-static ARCHIVE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
 pub async fn run(config: Config) -> Result<()> {
     let (tx, rx) = flume::bounded(config.pipeline.ingress_queue);
     let tcp_addr = config.server.tcp_addr.clone();
@@ -202,7 +200,8 @@ fn flush_parallel(
     let inserted = store.insert_batch(&events)?;
     let write_elapsed = write_start.elapsed();
 
-    metrics.add_events_written(inserted);
+    metrics.add_events_stored(inserted as u64);
+    metrics.inc_batches_stored();
 
     info!(
         "flushed batch: parsed={} inserted={} parse_ms={:.1} write_ms={:.1} total_ms={:.1}",

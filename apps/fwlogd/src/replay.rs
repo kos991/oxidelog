@@ -125,7 +125,7 @@ fn replay_single_segment<A: LogAdapter>(
         .with_context(|| format!("open duckdb for replay {}", duckdb_path.display()))?;
 
     let inserted = store
-        .insert_batch(&mut events)
+        .insert_batch(&events)
         .context("insert replayed events")?;
 
     metrics.add_events_stored(inserted as u64);
