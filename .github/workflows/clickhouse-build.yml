@@ -55,12 +55,11 @@ jobs:
     - name: Initialize ClickHouse
       run: |
         # Wait for ClickHouse to be ready
-        sleep 5
+        sleep 10
 
-        # Create database and tables
-        docker run --rm --network host clickhouse/clickhouse-client:24.3-alpine \
-          --host localhost --port 9000 \
-          --multiquery < scripts/clickhouse-init.sql || true
+        # Create database and tables using clickhouse-client from the server container
+        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
+          clickhouse-client --multiquery < scripts/clickhouse-init.sql || true
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -83,11 +82,9 @@ jobs:
     - name: Verify ClickHouse integration
       run: |
         # Check if ClickHouse tables exist
-        docker run --rm --network host clickhouse/clickhouse-client:24.3-alpine \
-          --host localhost --port 9000 \
-          --query "SHOW TABLES FROM oxidelog"
+        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
+          clickhouse-client --query "SHOW TABLES FROM oxidelog"
 
         # Check table structure
-        docker run --rm --network host clickhouse/clickhouse-client:24.3-alpine \
-          --host localhost --port 9000 \
-          --query "DESCRIBE oxidelog.events"
+        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
+          clickhouse-client --query "DESCRIBE oxidelog.events"
