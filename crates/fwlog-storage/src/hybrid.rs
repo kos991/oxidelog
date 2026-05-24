@@ -88,28 +88,49 @@ impl HybridStorage {
         Ok(local_inserted)
     }
 
-    /// Query events with automatic routing
-    pub async fn query_events(
+    /// Query events with automatic routing based on EventQuery
+    pub async fn query_events_with_query(
         &self,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-        source_addr: Option<&str>,
-        protocol: Option<&str>,
+        query: &crate::EventQuery,
         limit: usize,
     ) -> Result<Vec<CanonicalEvent>> {
-        let target = self.route_query(start_time);
+        let threshold = Utc::now() - Duration::hours(self.config.hot_data_hours);
 
-        match target {
-            QueryTarget::Local => {
-                info!("routing query to local duckdb");
-                self.query_local(start_time, end_time, source_addr, protocol, limit)
+        // Determine if we should use ClickHouse based on date_from
+        let use_remote = if let Some(date_from_str) = &query.date_from {
+            if let Ok(date_from) = DateTime::parse_from_rfc3339(date_from_str) {
+                date_from.with_timezone(&Utc) < threshold && self.remote.is_some()
+            } else {
+                false
             }
-            QueryTarget::Remote => {
-                info!("routing query to clickhouse");
-                self.query_remote(start_time, end_time, source_addr, protocol, limit)
-                    .await
-            }
+        } else if let Some(day) = &query.day {
+            // If day is provided, check if it's today
+            let today = Utc::now().format("%Y-%m-%d").to_string();
+            day != &today && self.remote.is_some()
+        } else {
+            false
+        };
+
+        if use_remote && self.remote_enabled.load(Ordering::Relaxed) {
+            info!("routing complex query to clickhouse");
+            self.query_remote_complex(query, limit).await
+        } else {
+            info!("routing complex query to local duckdb");
+            self.local.query_events_without_raw(query, limit)
         }
+    }
+
+    async fn query_remote_complex(
+        &self,
+        query: &crate::EventQuery,
+        limit: usize,
+    ) -> Result<Vec<CanonicalEvent>> {
+        let remote = self
+            .remote
+            .as_ref()
+            .context("clickhouse not initialized")?;
+
+        remote.query_events_complex(query, limit).await
     }
 
     /// Determine query target based on time range
@@ -162,9 +183,7 @@ impl HybridStorage {
     /// Get storage statistics
     pub async fn stats(&self) -> Result<HybridStats> {
         // Count events in local DuckDB
-        let local_count = self.local.query_recent(1)
-            .map(|_| 0u64)
-            .unwrap_or(0);
+        let local_count = self.local.query_recent(1).map(|_| 0u64).unwrap_or(0);
 
         let (remote_count, remote_size_bytes) = if let Some(remote) = &self.remote {
             match tokio::try_join!(remote.count_events(), remote.database_size()) {

@@ -22,8 +22,8 @@ pub use frozen::{
     list_frozen_files, prune_frozen_files, read_frozen_raw, write_frozen_raw, FrozenFile,
 };
 pub use governor::{
-    run_storage_governor, ArchiveConfig as GovernorArchiveConfig,
-    GovernorConfig, GovernorCycleReport, LifecycleConfig as GovernorLifecycleConfig,
+    run_storage_governor, ArchiveConfig as GovernorArchiveConfig, GovernorConfig,
+    GovernorCycleReport, LifecycleConfig as GovernorLifecycleConfig,
 };
 pub use hybrid::{HybridConfig, HybridHealth, HybridStats, HybridStorage};
 pub use lifecycle::{run_lifecycle_to, LifecycleReport};
