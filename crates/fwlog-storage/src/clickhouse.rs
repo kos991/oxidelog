@@ -45,7 +45,10 @@ impl ClickHouseStorage {
 
         for event in events {
             let ch_event = ClickHouseEvent::from(event);
-            insert.write(&ch_event).await.context("failed to write row")?;
+            insert
+                .write(&ch_event)
+                .await
+                .context("failed to write row")?;
         }
 
         insert.end().await.context("failed to end insert")?;
