@@ -679,7 +679,10 @@ pub async fn parser_profiles(Extension(state): Extension<ApiState>) -> Response 
     match DuckDbStore::open_read_only(&*state.duckdb_path)
         .and_then(|store| store.list_parser_profiles())
     {
-        Ok(rows) => Json(json!({ "profiles": rows, "total": rows.len() })).into_response(),
+        Ok(rows) => {
+            let total = rows.len();
+            Json(json!({ "profiles": rows, "total": total })).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": err.to_string() })),
@@ -692,7 +695,10 @@ pub async fn parser_adaptive_rules(Extension(state): Extension<ApiState>) -> Res
     match DuckDbStore::open_read_only(&*state.duckdb_path)
         .and_then(|store| store.list_adaptive_field_rules())
     {
-        Ok(rows) => Json(json!({ "rules": rows, "total": rows.len() })).into_response(),
+        Ok(rows) => {
+            let total = rows.len();
+            Json(json!({ "rules": rows, "total": total })).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": err.to_string() })),
@@ -705,7 +711,10 @@ pub async fn parser_diagnostics(Extension(state): Extension<ApiState>) -> Respon
     match DuckDbStore::open_read_only(&*state.duckdb_path)
         .and_then(|store| store.list_parser_diagnostics())
     {
-        Ok(rows) => Json(json!({ "diagnostics": rows, "total": rows.len() })).into_response(),
+        Ok(rows) => {
+            let total = rows.len();
+            Json(json!({ "diagnostics": rows, "total": total })).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": err.to_string() })),
@@ -718,7 +727,10 @@ pub async fn parser_scopes(Extension(state): Extension<ApiState>) -> Response {
     match DuckDbStore::open_read_only(&*state.duckdb_path)
         .and_then(|store| store.list_parser_scopes())
     {
-        Ok(rows) => Json(json!({ "scopes": rows, "total": rows.len() })).into_response(),
+        Ok(rows) => {
+            let total = rows.len();
+            Json(json!({ "scopes": rows, "total": total })).into_response()
+        }
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": err.to_string() })),
@@ -4478,4 +4490,26 @@ fn checked_frozen_path(frozen_dir: &Path, input_path: &Path) -> anyhow::Result<P
     } else {
         Err(OutsideFrozenDir.into())
     }
+}
+
+pub async fn storage_health(Extension(_state): Extension<ApiState>) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "hybrid_storage_not_integrated",
+            "message": "HybridStorage not available in ApiState. Integration required."
+        })),
+    )
+        .into_response()
+}
+
+pub async fn storage_stats(Extension(_state): Extension<ApiState>) -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "hybrid_storage_not_integrated",
+            "message": "HybridStorage not available in ApiState. Integration required."
+        })),
+    )
+        .into_response()
 }

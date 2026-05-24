@@ -1,4 +1,4 @@
-use std::{path::PathBuf, thread, time::Duration};
+use std::{path::PathBuf, sync::Arc, thread, time::Duration};
 
 use anyhow::{Context, Result};
 use fwlog_adapter::{LogAdapter, SangforAdapter};
@@ -9,11 +9,11 @@ use fwlog_ingress::{
 use fwlog_spool::SegmentWriter;
 use fwlog_storage::{
     run_storage_governor, DuckDbStore, GovernorArchiveConfig, GovernorConfig,
-    GovernorLifecycleConfig,
+    GovernorLifecycleConfig, HybridConfig, HybridStorage,
 };
 use tracing::{error, info};
 
-use crate::{replay::replay_spool_on_startup, ArchiveConfig, Config, LifecycleConfig};
+use crate::{replay::replay_spool_on_startup, ArchiveConfig, Config, LifecycleConfig, StorageMode};
 
 pub async fn run(config: Config) -> Result<()> {
     let (tx, rx) = flume::bounded(config.pipeline.ingress_queue);
@@ -37,6 +37,7 @@ pub async fn run(config: Config) -> Result<()> {
 
     let worker_duckdb_path = duckdb_path.clone();
     let worker_metrics = metrics.clone();
+    let worker_storage_config = config.storage.clone();
     thread::spawn(move || {
         if let Err(err) = run_worker(
             rx,
@@ -45,6 +46,7 @@ pub async fn run(config: Config) -> Result<()> {
             batch_size,
             flush_interval,
             worker_metrics.clone(),
+            worker_storage_config,
         ) {
             worker_metrics.inc_worker_errors();
             error!(error = %err, "pipeline worker stopped");
@@ -116,11 +118,44 @@ fn run_worker(
     batch_size: usize,
     flush_interval: Duration,
     metrics: RuntimeMetrics,
+    storage_config: crate::StorageConfig,
 ) -> Result<()> {
     use rayon::prelude::*;
 
     let adapter = SangforAdapter;
-    let mut store = DuckDbStore::open(&duckdb_path)?;
+
+    // Initialize HybridStorage if enabled, otherwise use DuckDB directly
+    let hybrid_storage = match storage_config.mode {
+        StorageMode::Hybrid if storage_config.clickhouse.enabled => {
+            let local_store = DuckDbStore::open(&duckdb_path)?;
+            let hybrid_config = HybridConfig {
+                clickhouse_enabled: storage_config.clickhouse.enabled,
+                clickhouse_url: storage_config.clickhouse.url.clone(),
+                clickhouse_database: storage_config.clickhouse.database.clone(),
+                hot_data_hours: storage_config.clickhouse.hot_data_hours,
+            };
+            match HybridStorage::new(Arc::new(local_store), hybrid_config) {
+                Ok(hs) => {
+                    info!("hybrid storage initialized (DuckDB + ClickHouse)");
+                    Some(hs)
+                }
+                Err(err) => {
+                    error!(error = %err, "failed to initialize hybrid storage, falling back to local-only");
+                    None
+                }
+            }
+        }
+        _ => {
+            info!("using local-only storage (DuckDB)");
+            None
+        }
+    };
+
+    let mut store = if hybrid_storage.is_none() {
+        Some(DuckDbStore::open(&duckdb_path)?)
+    } else {
+        None
+    };
 
     // Replay spool on startup for crash recovery
     match replay_spool_on_startup(
@@ -157,14 +192,14 @@ fn run_worker(
                 metrics.inc_spool_written();
                 raw_batch.push(raw);
                 if raw_batch.len() >= batch_size {
-                    flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
+                    flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
                 }
             }
             Err(flume::RecvTimeoutError::Timeout) => {
-                flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
+                flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
             }
             Err(flume::RecvTimeoutError::Disconnected) => {
-                flush_parallel(&adapter, &mut store, &mut raw_batch, &metrics)?;
+                flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
                 break;
             }
         }
@@ -175,7 +210,8 @@ fn run_worker(
 
 fn flush_parallel(
     adapter: &SangforAdapter,
-    store: &mut DuckDbStore,
+    store: &mut Option<DuckDbStore>,
+    hybrid_storage: &Option<HybridStorage>,
     raw_batch: &mut Vec<fwlog_domain::RawLog>,
     metrics: &RuntimeMetrics,
 ) -> Result<()> {
@@ -195,9 +231,15 @@ fn flush_parallel(
 
     let parse_elapsed = parse_start.elapsed();
 
-    // Sequential write to DuckDB
+    // Route to HybridStorage or fallback to DuckDB
     let write_start = std::time::Instant::now();
-    let inserted = store.insert_batch(&events)?;
+    let inserted = if let Some(hybrid) = hybrid_storage {
+        hybrid.insert_batch(&events)?
+    } else if let Some(local_store) = store {
+        local_store.insert_batch(&events)?
+    } else {
+        anyhow::bail!("no storage backend available");
+    };
     let write_elapsed = write_start.elapsed();
 
     metrics.add_events_stored(inserted as u64);

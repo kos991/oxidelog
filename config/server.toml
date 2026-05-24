@@ -35,3 +35,12 @@ drop_parsed_raw = true
 [dual_db]
 enabled = false
 sync_interval_seconds = 300
+
+[storage]
+mode = "local"  # "local" | "hybrid"
+
+[storage.clickhouse]
+enabled = false
+url = "http://localhost:8123"
+database = "oxidelog"
+hot_data_hours = 1  # DuckDB keeps last N hours, older queries go to ClickHouse

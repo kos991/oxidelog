@@ -84,7 +84,9 @@
       "Bash(curl -s \"https://api.github.com/repos/kos991/oxidelog/actions/runs/26268595207/logs\" -L -o /tmp/actions-log.zip)",
       "Bash(unzip -p /tmp/actions-log.zip)",
       "Bash(cd \"d:\\\\项目工程\\\\OxideLog\" && rm -f batch_size AdaptiveFieldRuleRow RawLog String \"error!\\(error\" last_sync_id \"{,+\" \"0\\)\" \"Err\\(err\\).with_context\\(\" \"onCreateDevice\\(values\" && git status --short)",
-      "Bash(git commit -m 'chore: remove accidentally created empty files *)"
+      "Bash(git commit -m 'chore: remove accidentally created empty files *)",
+      "WebFetch(domain:blog.seso.icu)",
+      "PowerShell(& \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\" check --workspace 2>&1 | Select-Object -First 100)"
     ],
     "additionalDirectories": [
       "D:\\项目工程\\OxideLog"

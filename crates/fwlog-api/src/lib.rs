@@ -113,6 +113,8 @@ pub fn router_with_options(
         .route("/api/archive/frozen/restore", get(handlers::restore_frozen))
         .route("/api/admission/cases", get(handlers::admission_cases))
         .route("/api/admission/profiles", get(handlers::admission_profiles))
+        .route("/api/storage/health", get(handlers::storage_health))
+        .route("/api/storage/stats", get(handlers::storage_stats))
         .fallback_service(ServeDir::new(web_dir).append_index_html_on_directories(true))
         .layer(middleware::from_fn(move |request, next| {
             require_api_token(request, next, api_token.clone())

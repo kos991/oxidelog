@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: oxidelog-clickhouse
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native protocol
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      CLICKHOUSE_DB: oxidelog
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  fwlogd:
+    build: .
+    container_name: oxidelog-fwlogd
+    ports:
+      - "18080:18080"  # API
+      - "1514:1514"    # TCP syslog
+      - "1515:1515/udp" # UDP syslog
+    volumes:
+      - ./data:/data
+      - ./config:/config
+    environment:
+      RUST_LOG: info
+      CLICKHOUSE_URL: http://clickhouse:8123
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  default:
+    name: oxidelog-network

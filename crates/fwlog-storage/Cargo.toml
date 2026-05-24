@@ -7,9 +7,13 @@ version.workspace = true
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+clickhouse = "0.13"
 csv.workspace = true
 duckdb.workspace = true
 fwlog-domain = { path = "../fwlog-domain" }
 serde.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 zstd.workspace = true

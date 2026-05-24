@@ -29,6 +29,68 @@ pub struct Config {
     pub adaptive_learning: AdaptiveLearningConfig,
     #[serde(default)]
     pub dual_db: fwlog_storage::DualDbConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StorageConfig {
+    #[serde(default)]
+    pub mode: StorageMode,
+    #[serde(default)]
+    pub clickhouse: ClickHouseConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageMode {
+    #[default]
+    Local,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClickHouseConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_clickhouse_url")]
+    pub url: String,
+    #[serde(default = "default_clickhouse_database")]
+    pub database: String,
+    #[serde(default = "default_hot_data_hours")]
+    pub hot_data_hours: i64,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            mode: StorageMode::Local,
+            clickhouse: ClickHouseConfig::default(),
+        }
+    }
+}
+
+impl Default for ClickHouseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: default_clickhouse_url(),
+            database: default_clickhouse_database(),
+            hot_data_hours: default_hot_data_hours(),
+        }
+    }
+}
+
+fn default_clickhouse_url() -> String {
+    "http://localhost:8123".to_string()
+}
+
+fn default_clickhouse_database() -> String {
+    "oxidelog".to_string()
+}
+
+fn default_hot_data_hours() -> i64 {
+    1
 }
 
 #[derive(Debug, Clone, Deserialize)]
