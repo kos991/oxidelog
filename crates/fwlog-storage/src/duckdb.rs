@@ -356,20 +356,16 @@ impl DuckDbStore {
         self.conn
             .execute_batch(create_parser_adaptive_tables_sql())?;
         self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_ingest_time ON events(ingest_time);"
+            "CREATE INDEX IF NOT EXISTS idx_events_ingest_time ON events(ingest_time);",
         )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_src_ip ON events(src_ip);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_protocol ON events(protocol);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);"
-        )?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_src_ip ON events(src_ip);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_protocol ON events(protocol);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);")?;
         Ok(())
     }
 
@@ -403,20 +399,16 @@ impl DuckDbStore {
                 .execute_batch("ALTER TABLE events ADD COLUMN device_id TEXT;")?;
         }
         self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_ingest_time ON events(ingest_time);"
+            "CREATE INDEX IF NOT EXISTS idx_events_ingest_time ON events(ingest_time);",
         )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_src_ip ON events(src_ip);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_protocol ON events(protocol);"
-        )?;
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);"
-        )?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_src_ip ON events(src_ip);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_dst_ip ON events(dst_ip);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_protocol ON events(protocol);")?;
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);")?;
         Ok(())
     }
 

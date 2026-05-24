@@ -52,7 +52,9 @@ impl RuntimeMetrics {
     }
 
     pub fn add_spool_replayed(&self, value: u64) {
-        self.inner.spool_replayed.fetch_add(value, Ordering::Relaxed);
+        self.inner
+            .spool_replayed
+            .fetch_add(value, Ordering::Relaxed);
     }
 
     pub fn add_events_stored(&self, value: u64) {

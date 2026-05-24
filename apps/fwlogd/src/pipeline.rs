@@ -27,7 +27,11 @@ pub async fn run(config: Config) -> Result<()> {
     let batch_size = config.pipeline.batch_size.max(1);
     let flush_interval = Duration::from_millis(config.pipeline.flush_interval_ms.max(100));
     let metrics = RuntimeMetrics::default();
-    let api_token = config.auth.api_token.clone().filter(|token| !token.is_empty());
+    let api_token = config
+        .auth
+        .api_token
+        .clone()
+        .filter(|token| !token.is_empty());
     let archive_config = config.archive.clone();
     let lifecycle_config = config.lifecycle.clone();
 
@@ -99,7 +103,8 @@ pub async fn run(config: Config) -> Result<()> {
     )
     .await?;
 
-    let app = fwlog_api::router_with_options(duckdb_path, parquet_dir, frozen_dir, metrics, api_token);
+    let app =
+        fwlog_api::router_with_options(duckdb_path, parquet_dir, frozen_dir, metrics, api_token);
     let listener = tokio::net::TcpListener::bind(&api_addr)
         .await
         .with_context(|| format!("bind api listener {api_addr}"))?;
@@ -158,12 +163,7 @@ fn run_worker(
     };
 
     // Replay spool on startup for crash recovery
-    match replay_spool_on_startup(
-        spool_dir.clone(),
-        duckdb_path.clone(),
-        &adapter,
-        &metrics,
-    ) {
+    match replay_spool_on_startup(spool_dir.clone(), duckdb_path.clone(), &adapter, &metrics) {
         Ok(report) => {
             if report.segments_found > 0 {
                 info!(
@@ -188,18 +188,38 @@ fn run_worker(
     loop {
         match rx.recv_timeout(flush_interval) {
             Ok(raw) => {
-                let _record = spool.append(raw.clone()).context("append raw log to spool")?;
+                let _record = spool
+                    .append(raw.clone())
+                    .context("append raw log to spool")?;
                 metrics.inc_spool_written();
                 raw_batch.push(raw);
                 if raw_batch.len() >= batch_size {
-                    flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
+                    flush_parallel(
+                        &adapter,
+                        &mut store,
+                        &hybrid_storage,
+                        &mut raw_batch,
+                        &metrics,
+                    )?;
                 }
             }
             Err(flume::RecvTimeoutError::Timeout) => {
-                flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
+                flush_parallel(
+                    &adapter,
+                    &mut store,
+                    &hybrid_storage,
+                    &mut raw_batch,
+                    &metrics,
+                )?;
             }
             Err(flume::RecvTimeoutError::Disconnected) => {
-                flush_parallel(&adapter, &mut store, &hybrid_storage, &mut raw_batch, &metrics)?;
+                flush_parallel(
+                    &adapter,
+                    &mut store,
+                    &hybrid_storage,
+                    &mut raw_batch,
+                    &metrics,
+                )?;
                 break;
             }
         }

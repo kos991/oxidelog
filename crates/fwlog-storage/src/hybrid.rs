@@ -125,10 +125,7 @@ impl HybridStorage {
         query: &crate::EventQuery,
         limit: usize,
     ) -> Result<Vec<CanonicalEvent>> {
-        let remote = self
-            .remote
-            .as_ref()
-            .context("clickhouse not initialized")?;
+        let remote = self.remote.as_ref().context("clickhouse not initialized")?;
 
         remote.query_events_complex(query, limit).await
     }
@@ -170,10 +167,7 @@ impl HybridStorage {
         protocol: Option<&str>,
         limit: usize,
     ) -> Result<Vec<CanonicalEvent>> {
-        let remote = self
-            .remote
-            .as_ref()
-            .context("clickhouse not initialized")?;
+        let remote = self.remote.as_ref().context("clickhouse not initialized")?;
 
         remote
             .query_events(start_time, end_time, source_addr, protocol, limit)

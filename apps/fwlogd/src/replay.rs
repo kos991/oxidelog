@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use fwlog_adapter::LogAdapter;
 use fwlog_domain::{CanonicalEvent, RawLog, RuntimeMetrics};
-use fwlog_spool::{discover_uncommitted_segments, rename_segment_to_committed, replay_segment, ReplaySegment, SpoolCheckpoint};
+use fwlog_spool::{
+    discover_uncommitted_segments, rename_segment_to_committed, replay_segment, ReplaySegment,
+    SpoolCheckpoint,
+};
 use fwlog_storage::DuckDbStore;
 use tracing::{error, info, warn};
 
@@ -23,18 +26,15 @@ pub fn replay_spool_on_startup<A: LogAdapter>(
     adapter: &A,
     metrics: &RuntimeMetrics,
 ) -> Result<ReplayReport> {
-    let segments = discover_uncommitted_segments(&spool_dir)
-        .context("discover uncommitted segments")?;
+    let segments =
+        discover_uncommitted_segments(&spool_dir).context("discover uncommitted segments")?;
 
     if segments.is_empty() {
         info!("no uncommitted segments found, skipping replay");
         return Ok(ReplayReport::default());
     }
 
-    info!(
-        segments = segments.len(),
-        "starting spool replay"
-    );
+    info!(segments = segments.len(), "starting spool replay");
 
     let mut report = ReplayReport {
         segments_found: segments.len(),
@@ -42,12 +42,7 @@ pub fn replay_spool_on_startup<A: LogAdapter>(
     };
 
     for segment in segments {
-        match replay_single_segment(
-            &segment,
-            &duckdb_path,
-            adapter,
-            metrics,
-        ) {
+        match replay_single_segment(&segment, &duckdb_path, adapter, metrics) {
             Ok(segment_report) => {
                 report.segments_replayed += 1;
                 report.records_replayed += segment_report.records_replayed;
@@ -104,8 +99,9 @@ fn replay_single_segment<A: LogAdapter>(
             segment = %segment.path.display(),
             "segment has no records to replay"
         );
-        rename_segment_to_committed(segment)
-            .with_context(|| format!("mark empty segment as committed {}", segment.path.display()))?;
+        rename_segment_to_committed(segment).with_context(|| {
+            format!("mark empty segment as committed {}", segment.path.display())
+        })?;
         return Ok(SegmentReplayReport::default());
     }
 

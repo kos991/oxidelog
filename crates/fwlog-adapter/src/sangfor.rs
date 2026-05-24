@@ -169,11 +169,13 @@ fn normalize_protocol(value: String) -> String {
     }
 }
 
-fn parse_syslog_timestamp(raw: &str, ingest_time: chrono::DateTime<Utc>) -> Option<chrono::DateTime<Utc>> {
+fn parse_syslog_timestamp(
+    raw: &str,
+    ingest_time: chrono::DateTime<Utc>,
+) -> Option<chrono::DateTime<Utc>> {
     static SYSLOG_TS: OnceLock<Regex> = OnceLock::new();
-    let re = SYSLOG_TS.get_or_init(|| {
-        Regex::new(r"^(?:<\d+>)?(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})").unwrap()
-    });
+    let re = SYSLOG_TS
+        .get_or_init(|| Regex::new(r"^(?:<\d+>)?(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})").unwrap());
 
     let caps = re.captures(raw)?;
     let ts_str = caps.get(1)?.as_str();

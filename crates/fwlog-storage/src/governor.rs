@@ -4,7 +4,9 @@ use std::time::Duration;
 use anyhow::Result;
 use tracing::{error, info};
 
-use crate::{prune_archive_files, prune_frozen_files, run_lifecycle_to, write_frozen_raw, DuckDbStore};
+use crate::{
+    prune_archive_files, prune_frozen_files, run_lifecycle_to, write_frozen_raw, DuckDbStore,
+};
 
 #[derive(Debug, Clone)]
 pub struct GovernorConfig {
@@ -56,7 +58,8 @@ pub async fn run_storage_governor(
     let mut archive_ticks = 0u64;
     let mut lifecycle_ticks = 0u64;
     let archive_tick_threshold = (config.archive.interval_seconds / tick_interval.as_secs()).max(1);
-    let lifecycle_tick_threshold = (config.lifecycle.interval_seconds / tick_interval.as_secs()).max(1);
+    let lifecycle_tick_threshold =
+        (config.lifecycle.interval_seconds / tick_interval.as_secs()).max(1);
 
     info!(
         archive_enabled = config.archive.enabled,
@@ -86,7 +89,8 @@ pub async fn run_storage_governor(
         lifecycle_ticks += 1;
 
         let should_archive = config.archive.enabled && archive_ticks >= archive_tick_threshold;
-        let should_lifecycle = config.lifecycle.enabled && lifecycle_ticks >= lifecycle_tick_threshold;
+        let should_lifecycle =
+            config.lifecycle.enabled && lifecycle_ticks >= lifecycle_tick_threshold;
 
         if should_archive || should_lifecycle {
             if let Err(err) = run_governance_cycle(

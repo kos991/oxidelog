@@ -156,8 +156,7 @@ impl DualDbManager {
 
         // Rename legacy database to backup
         let backup_path = legacy_path.with_extension("duckdb.backup");
-        fs::rename(legacy_path, &backup_path)
-            .context("rename legacy database to backup")?;
+        fs::rename(legacy_path, &backup_path).context("rename legacy database to backup")?;
 
         info!(
             backup = %backup_path.display(),

@@ -28,8 +28,8 @@ pub fn discover_uncommitted_segments(spool_dir: impl AsRef<Path>) -> Result<Vec<
     }
 
     let mut segments = Vec::new();
-    let entries = fs::read_dir(dir)
-        .with_context(|| format!("read spool directory {}", dir.display()))?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("read spool directory {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry.context("read directory entry")?;
@@ -89,8 +89,8 @@ pub fn cleanup_committed_segments(spool_dir: impl AsRef<Path>) -> Result<usize> 
     }
 
     let mut deleted = 0;
-    let entries = fs::read_dir(dir)
-        .with_context(|| format!("read spool directory {}", dir.display()))?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("read spool directory {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry.context("read directory entry")?;
@@ -169,7 +169,13 @@ mod tests {
             path: sealed,
             name: "segment-replay.sealed".to_string(),
         };
-        let records = replay_segment(&segment, SpoolCheckpoint { committed_offset: 1 }).unwrap();
+        let records = replay_segment(
+            &segment,
+            SpoolCheckpoint {
+                committed_offset: 1,
+            },
+        )
+        .unwrap();
 
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].raw, "b");
