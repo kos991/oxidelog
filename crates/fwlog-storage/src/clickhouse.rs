@@ -4,7 +4,7 @@ use clickhouse::{Client, Row};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 
-use fwlog_domain::CanonicalEvent;
+use fwlog_domain::{CanonicalEvent, ParseStatus};
 
 /// ClickHouse storage client for historical data
 pub struct ClickHouseStorage {
@@ -117,7 +117,7 @@ impl ClickHouseStorage {
         }
 
         if !query.include_failed {
-            sql.push_str(" AND parse_status = 'Parsed'");
+            sql.push_str(" AND parse_status = 'parsed'");
         }
 
         sql.push_str(&format!(" ORDER BY ingest_time DESC LIMIT {}", limit));
@@ -182,9 +182,11 @@ impl ClickHouseStorage {
 #[derive(Debug, Clone, Row, Serialize, Deserialize)]
 struct ClickHouseEvent {
     event_id: String,
+    #[serde(with = "clickhouse::serde::chrono::datetime64::millis")]
     ingest_time: DateTime<Utc>,
     source_addr: String,
     device_id: String,
+    #[serde(with = "clickhouse::serde::chrono::datetime64::millis")]
     event_time: DateTime<Utc>,
     vendor: String,
     product: String,
@@ -210,15 +212,15 @@ impl From<&CanonicalEvent> for ClickHouseEvent {
             event_time: event.event_time.unwrap_or(event.ingest_time),
             vendor: event.vendor.clone().unwrap_or_default(),
             product: event.product.clone().unwrap_or_default(),
-            src_ip: event.src_ip.map(|ip| ip.to_string()).unwrap_or_default(),
+            src_ip: event.src_ip.clone().unwrap_or_default(),
             src_port: event.src_port.unwrap_or(0),
-            dst_ip: event.dst_ip.map(|ip| ip.to_string()).unwrap_or_default(),
+            dst_ip: event.dst_ip.clone().unwrap_or_default(),
             dst_port: event.dst_port.unwrap_or(0),
             protocol: event.protocol.clone().unwrap_or_default(),
             action: event.action.clone().unwrap_or_default(),
             severity: event.severity.clone().unwrap_or_default(),
             raw: event.raw.clone(),
-            parse_status: event.parse_status.clone(),
+            parse_status: status_str(event.parse_status).to_string(),
             parse_error: event.parse_error.clone().unwrap_or_default(),
         }
     }
@@ -282,13 +284,29 @@ impl From<ClickHouseEvent> for CanonicalEvent {
                 Some(ch.severity)
             },
             raw: ch.raw,
-            parse_status: ch.parse_status,
+            parse_status: parse_status_from_str(&ch.parse_status),
             parse_error: if ch.parse_error.is_empty() {
                 None
             } else {
                 Some(ch.parse_error)
             },
         }
+    }
+}
+
+fn status_str(status: ParseStatus) -> &'static str {
+    match status {
+        ParseStatus::Parsed => "parsed",
+        ParseStatus::Partial => "partial",
+        ParseStatus::Failed => "failed",
+    }
+}
+
+fn parse_status_from_str(value: &str) -> ParseStatus {
+    match value {
+        "parsed" => ParseStatus::Parsed,
+        "partial" => ParseStatus::Partial,
+        _ => ParseStatus::Failed,
     }
 }
 

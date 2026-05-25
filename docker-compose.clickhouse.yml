@@ -29,6 +29,7 @@ services:
   fwlogd:
     build: .
     container_name: oxidelog-fwlogd
+    command: ["--config", "/config/server.toml"]
     ports:
       - "18080:18080"  # API
       - "1514:1514"    # TCP syslog
@@ -38,7 +39,10 @@ services:
       - ./config:/config
     environment:
       RUST_LOG: info
+      STORAGE_MODE: hybrid
+      CLICKHOUSE_ENABLED: "true"
       CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: oxidelog
     depends_on:
       clickhouse:
         condition: service_healthy

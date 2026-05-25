@@ -1,0 +1,9 @@
+target/
+data/
+.git/
+.worktrees/
+smoke-production-output/
+sangfor_fw_log/
+*.log
+*.tmp
+*.zip

@@ -41,12 +41,17 @@ pub struct StorageConfig {
     pub clickhouse: ClickHouseConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageMode {
-    #[default]
     Local,
     Hybrid,
+}
+
+impl Default for StorageMode {
+    fn default() -> Self {
+        Self::Hybrid
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,7 +71,7 @@ pub struct ClickHouseConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            mode: StorageMode::Local,
+            mode: StorageMode::Hybrid,
             clickhouse: ClickHouseConfig::default(),
         }
     }
@@ -232,6 +237,31 @@ fn load_config(path: PathBuf) -> Result<Config> {
     if let Ok(token) = std::env::var("OXIDELOG_API_TOKEN") {
         if !token.is_empty() {
             config.auth.api_token = Some(token);
+        }
+    }
+    if let Ok(mode) = std::env::var("STORAGE_MODE") {
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "hybrid" => config.storage.mode = StorageMode::Hybrid,
+            "local" => config.storage.mode = StorageMode::Local,
+            _ => {}
+        }
+    }
+    if let Ok(url) = std::env::var("CLICKHOUSE_URL") {
+        if !url.is_empty() {
+            config.storage.clickhouse.url = url;
+        }
+    }
+    if let Ok(database) = std::env::var("CLICKHOUSE_DATABASE") {
+        if !database.is_empty() {
+            config.storage.clickhouse.database = database;
+        }
+    }
+    if let Ok(enabled) = std::env::var("CLICKHOUSE_ENABLED") {
+        if !enabled.is_empty() {
+            config.storage.clickhouse.enabled = matches!(
+                enabled.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            );
         }
     }
     Ok(config)
