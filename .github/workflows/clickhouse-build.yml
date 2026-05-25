@@ -62,19 +62,19 @@ jobs:
           clickhouse-client --multiquery < scripts/clickhouse-init.sql || true
 
     - name: Run clippy
-      run: cargo clippy --workspace --all-targets
+      run: cargo clippy --workspace --all-targets 2>&1 | tee cargo-clippy.log
 
     - name: Build workspace
-      run: cargo build --workspace --verbose
+      run: cargo build --workspace --verbose 2>&1 | tee cargo-build.log
 
     - name: Run tests
-      run: cargo test --workspace --verbose
+      run: cargo test --workspace --verbose 2>&1 | tee cargo-test.log
       env:
         CLICKHOUSE_URL: http://localhost:8123
         CLICKHOUSE_DATABASE: oxidelog
 
     - name: Build release
-      run: cargo build --workspace --release --verbose
+      run: cargo build --workspace --release --verbose 2>&1 | tee cargo-release-build.log
 
     - name: Verify ClickHouse integration
       run: |
@@ -85,3 +85,10 @@ jobs:
         # Check table structure
         docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
           clickhouse-client --query "DESCRIBE oxidelog.events"
+
+    - name: Upload ClickHouse build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: clickhouse-cargo-logs
+        path: cargo-*.log

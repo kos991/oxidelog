@@ -21,6 +21,14 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
       - name: Run unit tests
-        run: cargo test --workspace --lib --bins
+        run: cargo test --workspace --lib --bins 2>&1 | tee cargo-test.log
       - name: Run Linux local goal
-        run: bash scripts/goal-linux.sh
+        run: bash scripts/goal-linux.sh 2>&1 | tee goal-linux.log
+      - name: Upload goal logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goal-logs
+          path: |
+            cargo-test.log
+            goal-linux.log
