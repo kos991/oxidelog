@@ -265,6 +265,8 @@ fn archive_stamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
+    use fwlog_domain::{CanonicalEvent, ParseStatus};
 
     #[test]
     fn archive_stamp_is_unique_and_sortable() {
@@ -272,5 +274,133 @@ mod tests {
         let stamp2 = archive_stamp();
         assert_ne!(stamp1, stamp2);
         assert!(stamp1 < stamp2);
+    }
+
+    #[test]
+    fn governance_cycle_skips_disabled_phases() {
+        let dir = tempfile::tempdir().unwrap();
+        let duckdb_path = dir.path().join("events.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        seed_events(&duckdb_path, 2);
+
+        let report = run_governance_cycle(
+            &duckdb_path,
+            &parquet_dir,
+            &frozen_dir,
+            &test_config(false, false),
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(!report.archive_completed);
+        assert_eq!(report.archive_events, 0);
+        assert!(!report.lifecycle_completed);
+        assert_eq!(report.lifecycle_compacted_rows, 0);
+        assert!(!parquet_dir.exists());
+        assert!(!frozen_dir.exists());
+    }
+
+    #[test]
+    fn governance_cycle_can_run_lifecycle_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let duckdb_path = dir.path().join("events.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        seed_events(&duckdb_path, 3);
+
+        let report = run_governance_cycle(
+            &duckdb_path,
+            &parquet_dir,
+            &frozen_dir,
+            &test_config(false, true),
+            false,
+            true,
+        )
+        .unwrap();
+
+        assert!(!report.archive_completed);
+        assert_eq!(report.archive_events, 0);
+        assert!(report.lifecycle_completed);
+        assert_eq!(report.lifecycle_compacted_rows, 2);
+        assert!(!parquet_dir.exists());
+        assert!(!frozen_dir.exists());
+    }
+
+    #[test]
+    fn governance_cycle_runs_archive_before_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let duckdb_path = dir.path().join("events.duckdb");
+        let parquet_dir = dir.path().join("parquet");
+        let frozen_dir = dir.path().join("frozen");
+        seed_events(&duckdb_path, 3);
+
+        let report = run_governance_cycle(
+            &duckdb_path,
+            &parquet_dir,
+            &frozen_dir,
+            &test_config(true, true),
+            true,
+            true,
+        )
+        .unwrap();
+
+        assert!(report.archive_completed);
+        assert_eq!(report.archive_events, 3);
+        assert!(report.lifecycle_completed);
+        assert_eq!(report.lifecycle_compacted_rows, 2);
+        assert_eq!(crate::list_archive_files(&parquet_dir).unwrap().len(), 1);
+        assert_eq!(crate::list_frozen_files(&frozen_dir).unwrap().len(), 1);
+        let store = DuckDbStore::open_read_only(&duckdb_path).unwrap();
+        assert_eq!(store.list_frozen_archive_index(None, 10).unwrap().len(), 1);
+    }
+
+    fn test_config(archive_enabled: bool, lifecycle_enabled: bool) -> GovernorConfig {
+        GovernorConfig {
+            archive: ArchiveConfig {
+                enabled: archive_enabled,
+                interval_seconds: 60,
+                batch_limit: 10,
+                parquet_retention_days: 90,
+                frozen_retention_days: 180,
+            },
+            lifecycle: LifecycleConfig {
+                enabled: lifecycle_enabled,
+                hot_limit: 2,
+                interval_seconds: 60,
+                drop_parsed_raw: true,
+            },
+        }
+    }
+
+    fn seed_events(path: &Path, count: usize) {
+        let mut store = DuckDbStore::open(path).unwrap();
+        let events = (0..count).map(test_event).collect::<Vec<_>>();
+        store.insert_batch(&events).unwrap();
+    }
+
+    fn test_event(index: usize) -> CanonicalEvent {
+        CanonicalEvent {
+            event_id: format!("event-{index}"),
+            ingest_time: Utc
+                .timestamp_opt(1_778_808_000 + index as i64, 0)
+                .unwrap(),
+            source_addr: "udp://192.168.1.1:514".to_string(),
+            device_id: Some("fw-edge".to_string()),
+            event_time: None,
+            vendor: Some("Sangfor".to_string()),
+            product: Some("Firewall".to_string()),
+            src_ip: Some(format!("192.168.1.{}", index + 10)),
+            src_port: Some(10_000 + index as u16),
+            dst_ip: Some("10.0.0.1".to_string()),
+            dst_port: Some(443),
+            protocol: Some("TCP".to_string()),
+            action: Some("allow".to_string()),
+            severity: Some("medium".to_string()),
+            raw: format!("raw event {index}"),
+            parse_status: ParseStatus::Parsed,
+            parse_error: None,
+        }
     }
 }
