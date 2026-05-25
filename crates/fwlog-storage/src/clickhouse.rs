@@ -57,39 +57,85 @@ impl ClickHouseStorage {
         Ok(events.len())
     }
 
-    /// Query events by time range and filters
-    pub async fn query_events(
+    /// Query events with complex filters (EventQuery)
+    pub async fn query_events_complex(
         &self,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-        source_addr: Option<&str>,
-        protocol: Option<&str>,
+        query: &crate::EventQuery,
         limit: usize,
     ) -> Result<Vec<CanonicalEvent>> {
-        let mut sql = format!(
-            "SELECT * FROM events WHERE ingest_time >= '{}' AND ingest_time < '{}'",
-            start_time.format("%Y-%m-%d %H:%M:%S"),
-            end_time.format("%Y-%m-%d %H:%M:%S")
-        );
+        let mut sql = "SELECT * FROM events WHERE 1=1".to_string();
 
-        if let Some(addr) = source_addr {
-            sql.push_str(&format!(" AND source_addr = '{}'", addr));
+        if let Some(day) = &query.day {
+            sql.push_str(&format!(" AND toDate(ingest_time) = '{}'", self.escape_sql(day)));
         }
 
-        if let Some(proto) = protocol {
-            sql.push_str(&format!(" AND protocol = '{}'", proto));
+        if let Some(date_from) = &query.date_from {
+            if let Ok(dt) = crate::parse_any_date(date_from) {
+                sql.push_str(&format!(
+                    " AND ingest_time >= '{}'",
+                    dt.format("%Y-%m-%d %H:%M:%S")
+                ));
+            }
+        }
+
+        if let Some(date_to) = &query.date_to {
+            if let Ok(dt) = crate::parse_any_date(date_to) {
+                sql.push_str(&format!(
+                    " AND ingest_time <= '{}'",
+                    dt.format("%Y-%m-%d %H:%M:%S")
+                ));
+            }
+        }
+
+
+        if let Some(src_ip) = &query.src_ip {
+            sql.push_str(&format!(" AND src_ip = '{}'", self.escape_sql(src_ip)));
+        }
+
+        if let Some(dst_ip) = &query.dst_ip {
+            sql.push_str(&format!(" AND dst_ip = '{}'", self.escape_sql(dst_ip)));
+        }
+
+        if let Some(protocol) = &query.protocol {
+            sql.push_str(&format!(" AND protocol = '{}'", self.escape_sql(protocol)));
+        }
+
+        if let Some(action) = &query.action {
+            sql.push_str(&format!(" AND action = '{}'", self.escape_sql(action)));
+        }
+
+        if let Some(device_id) = &query.device_id {
+            sql.push_str(&format!(" AND device_id = '{}'", self.escape_sql(device_id)));
+        }
+
+        if let Some(keyword) = &query.keyword {
+            let escaped = self.escape_sql(keyword);
+            sql.push_str(&format!(
+                " AND (raw LIKE '%{}%' OR parse_error LIKE '%{}%')",
+                escaped, escaped
+            ));
+        }
+
+        if !query.include_failed {
+            sql.push_str(" AND parse_status = 'Parsed'");
         }
 
         sql.push_str(&format!(" ORDER BY ingest_time DESC LIMIT {}", limit));
+
+        debug!(sql = sql, "executing clickhouse complex query");
 
         let rows = self
             .client
             .query(&sql)
             .fetch_all::<ClickHouseEvent>()
             .await
-            .context("failed to query events")?;
+            .context("failed to query events complex")?;
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    fn escape_sql(&self, s: &str) -> String {
+        s.replace('\'', "''")
     }
 
     /// Get total event count

@@ -59,6 +59,8 @@ pub struct ClickHouseConfig {
     pub database: String,
     #[serde(default = "default_hot_data_hours")]
     pub hot_data_hours: i64,
+    #[serde(default = "default_max_concurrent_writes")]
+    pub max_concurrent_writes: usize,
 }
 
 impl Default for StorageConfig {
@@ -77,6 +79,7 @@ impl Default for ClickHouseConfig {
             url: default_clickhouse_url(),
             database: default_clickhouse_database(),
             hot_data_hours: default_hot_data_hours(),
+            max_concurrent_writes: default_max_concurrent_writes(),
         }
     }
 }
@@ -91,6 +94,10 @@ fn default_clickhouse_database() -> String {
 
 fn default_hot_data_hours() -> i64 {
     1
+}
+
+fn default_max_concurrent_writes() -> usize {
+    16
 }
 
 #[derive(Debug, Clone, Deserialize)]

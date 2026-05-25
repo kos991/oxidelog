@@ -34,6 +34,35 @@ pub async fn run(config: Config) -> Result<()> {
         .filter(|token| !token.is_empty());
     let archive_config = config.archive.clone();
     let lifecycle_config = config.lifecycle.clone();
+    let storage_config = config.storage.clone();
+
+    // Initialize HybridStorage if enabled, so it can be shared between worker and API
+    let hybrid_storage = match storage_config.mode {
+        StorageMode::Hybrid if storage_config.clickhouse.enabled => {
+            let local_store = DuckDbStore::open(&duckdb_path)?;
+            let hybrid_config = HybridConfig {
+                clickhouse_enabled: storage_config.clickhouse.enabled,
+                clickhouse_url: storage_config.clickhouse.url.clone(),
+                clickhouse_database: storage_config.clickhouse.database.clone(),
+                hot_data_hours: storage_config.clickhouse.hot_data_hours,
+                max_concurrent_writes: storage_config.clickhouse.max_concurrent_writes,
+            };
+            match HybridStorage::new(Arc::new(local_store), hybrid_config) {
+                Ok(hs) => {
+                    info!("hybrid storage initialized (DuckDB + ClickHouse)");
+                    Some(Arc::new(hs))
+                }
+                Err(err) => {
+                    error!(error = %err, "failed to initialize hybrid storage, falling back to local-only");
+                    None
+                }
+            }
+        }
+        _ => {
+            info!("using local-only storage (DuckDB)");
+            None
+        }
+    };
 
     let mut api_store = DuckDbStore::open(&duckdb_path)?;
     api_store.insert_batch(&[])?;
@@ -41,7 +70,7 @@ pub async fn run(config: Config) -> Result<()> {
 
     let worker_duckdb_path = duckdb_path.clone();
     let worker_metrics = metrics.clone();
-    let worker_storage_config = config.storage.clone();
+    let worker_hybrid_storage = hybrid_storage.clone();
     thread::spawn(move || {
         if let Err(err) = run_worker(
             rx,
@@ -50,7 +79,7 @@ pub async fn run(config: Config) -> Result<()> {
             batch_size,
             flush_interval,
             worker_metrics.clone(),
-            worker_storage_config,
+            worker_hybrid_storage,
         ) {
             worker_metrics.inc_worker_errors();
             error!(error = %err, "pipeline worker stopped");
@@ -103,8 +132,14 @@ pub async fn run(config: Config) -> Result<()> {
     )
     .await?;
 
-    let app =
-        fwlog_api::router_with_options(duckdb_path, parquet_dir, frozen_dir, metrics, api_token);
+    let app = fwlog_api::router_with_options(
+        duckdb_path,
+        parquet_dir,
+        frozen_dir,
+        metrics,
+        api_token,
+        hybrid_storage.clone(),
+    );
     let listener = tokio::net::TcpListener::bind(&api_addr)
         .await
         .with_context(|| format!("bind api listener {api_addr}"))?;
@@ -123,38 +158,9 @@ fn run_worker(
     batch_size: usize,
     flush_interval: Duration,
     metrics: RuntimeMetrics,
-    storage_config: crate::StorageConfig,
+    hybrid_storage: Option<Arc<HybridStorage>>,
 ) -> Result<()> {
-    use rayon::prelude::*;
-
     let adapter = SangforAdapter;
-
-    // Initialize HybridStorage if enabled, otherwise use DuckDB directly
-    let hybrid_storage = match storage_config.mode {
-        StorageMode::Hybrid if storage_config.clickhouse.enabled => {
-            let local_store = DuckDbStore::open(&duckdb_path)?;
-            let hybrid_config = HybridConfig {
-                clickhouse_enabled: storage_config.clickhouse.enabled,
-                clickhouse_url: storage_config.clickhouse.url.clone(),
-                clickhouse_database: storage_config.clickhouse.database.clone(),
-                hot_data_hours: storage_config.clickhouse.hot_data_hours,
-            };
-            match HybridStorage::new(Arc::new(local_store), hybrid_config) {
-                Ok(hs) => {
-                    info!("hybrid storage initialized (DuckDB + ClickHouse)");
-                    Some(hs)
-                }
-                Err(err) => {
-                    error!(error = %err, "failed to initialize hybrid storage, falling back to local-only");
-                    None
-                }
-            }
-        }
-        _ => {
-            info!("using local-only storage (DuckDB)");
-            None
-        }
-    };
 
     let mut store = if hybrid_storage.is_none() {
         Some(DuckDbStore::open(&duckdb_path)?)
@@ -231,7 +237,7 @@ fn run_worker(
 fn flush_parallel(
     adapter: &SangforAdapter,
     store: &mut Option<DuckDbStore>,
-    hybrid_storage: &Option<HybridStorage>,
+    hybrid_storage: &Option<Arc<HybridStorage>>,
     raw_batch: &mut Vec<fwlog_domain::RawLog>,
     metrics: &RuntimeMetrics,
 ) -> Result<()> {

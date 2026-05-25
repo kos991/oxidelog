@@ -564,11 +564,19 @@ pub async fn events(
     Query(query): Query<EventsQuery>,
 ) -> Response {
     let (event_query, limit) = event_query_from_params(query);
-    match DuckDbStore::open_read_only(&*state.duckdb_path)
-        .and_then(|store| store.query_events_without_raw(&event_query, limit))
-    {
-        Ok(events) => Json(events).into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+
+    if let Some(hybrid) = state.hybrid_storage.as_ref() {
+        match hybrid.query_events_with_query(&event_query, limit).await {
+            Ok(events) => Json(events).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+        }
+    } else {
+        match DuckDbStore::open_read_only(&*state.duckdb_path)
+            .and_then(|store| store.query_events_without_raw(&event_query, limit))
+        {
+            Ok(events) => Json(events).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}")).into_response(),
+        }
     }
 }
 
@@ -4492,24 +4500,54 @@ fn checked_frozen_path(frozen_dir: &Path, input_path: &Path) -> anyhow::Result<P
     }
 }
 
-pub async fn storage_health(Extension(_state): Extension<ApiState>) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
+pub async fn storage_health(Extension(state): Extension<ApiState>) -> Response {
+    if let Some(hybrid) = state.hybrid_storage.as_ref() {
+        let health = hybrid.health_check().await;
         Json(json!({
-            "error": "hybrid_storage_not_integrated",
-            "message": "HybridStorage not available in ApiState. Integration required."
-        })),
-    )
+            "status": if health.local_ok { "ok" } else { "degraded" },
+            "local_ok": health.local_ok,
+            "remote_ok": health.remote_ok,
+            "remote_enabled": health.remote_enabled,
+        }))
         .into_response()
+    } else {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({
+                "error": "hybrid_storage_not_enabled",
+                "message": "Hybrid storage is not enabled in configuration"
+            })),
+        )
+            .into_response()
+    }
 }
 
-pub async fn storage_stats(Extension(_state): Extension<ApiState>) -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": "hybrid_storage_not_integrated",
-            "message": "HybridStorage not available in ApiState. Integration required."
-        })),
-    )
-        .into_response()
+pub async fn storage_stats(Extension(state): Extension<ApiState>) -> Response {
+    if let Some(hybrid) = state.hybrid_storage.as_ref() {
+        match hybrid.stats().await {
+            Ok(stats) => Json(json!({
+                "local_count": stats.local_count,
+                "remote_count": stats.remote_count,
+                "remote_size_bytes": stats.remote_size_bytes,
+            }))
+            .into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "storage_stats_failed",
+                    "message": format!("{err:#}")
+                })),
+            )
+                .into_response(),
+        }
+    } else {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({
+                "error": "hybrid_storage_not_enabled",
+                "message": "Hybrid storage is not enabled in configuration"
+            })),
+        )
+            .into_response()
+    }
 }

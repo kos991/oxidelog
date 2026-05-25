@@ -12,7 +12,12 @@ use axum::{
     Extension, Router,
 };
 use fwlog_domain::RuntimeMetrics;
+use fwlog_storage::{
+    run_storage_governor, DuckDbStore, GovernorArchiveConfig, GovernorConfig,
+    GovernorLifecycleConfig, HybridStorage,
+};
 use tower_http::services::ServeDir;
+use tracing::info;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -21,15 +26,22 @@ pub struct ApiState {
     pub frozen_dir: Arc<PathBuf>,
     pub metrics: RuntimeMetrics,
     pub auth_enabled: bool,
+    pub hybrid_storage: Option<Arc<HybridStorage>>,
 }
 
-pub fn router(duckdb_path: PathBuf, parquet_dir: PathBuf, frozen_dir: PathBuf) -> Router {
+pub fn router(
+    duckdb_path: PathBuf,
+    parquet_dir: PathBuf,
+    frozen_dir: PathBuf,
+    hybrid_storage: Option<Arc<HybridStorage>>,
+) -> Router {
     router_with_options(
         duckdb_path,
         parquet_dir,
         frozen_dir,
         RuntimeMetrics::default(),
         None,
+        hybrid_storage,
     )
 }
 
@@ -39,6 +51,7 @@ pub fn router_with_options(
     frozen_dir: PathBuf,
     metrics: RuntimeMetrics,
     api_token: Option<String>,
+    hybrid_storage: Option<Arc<HybridStorage>>,
 ) -> Router {
     let state = ApiState {
         duckdb_path: Arc::new(duckdb_path),
@@ -46,6 +59,7 @@ pub fn router_with_options(
         frozen_dir: Arc::new(frozen_dir),
         metrics,
         auth_enabled: api_token.as_deref().is_some_and(|token| !token.is_empty()),
+        hybrid_storage,
     };
     let web_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../web");
 

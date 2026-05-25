@@ -86,7 +86,14 @@
       "Bash(cd \"d:\\\\项目工程\\\\OxideLog\" && rm -f batch_size AdaptiveFieldRuleRow RawLog String \"error!\\(error\" last_sync_id \"{,+\" \"0\\)\" \"Err\\(err\\).with_context\\(\" \"onCreateDevice\\(values\" && git status --short)",
       "Bash(git commit -m 'chore: remove accidentally created empty files *)",
       "WebFetch(domain:blog.seso.icu)",
-      "PowerShell(& \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\" check --workspace 2>&1 | Select-Object -First 100)"
+      "PowerShell(& \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\" check --workspace 2>&1 | Select-Object -First 100)",
+      "Bash(git commit *)",
+      "Bash(export GH_TOKEN=\"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\")",
+      "Bash(git reset *)",
+      "Bash(git checkout *)",
+      "Bash(gh workflow *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ],
     "additionalDirectories": [
       "D:\\项目工程\\OxideLog"

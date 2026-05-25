@@ -16,6 +16,7 @@ pub struct HybridStorage {
     remote: Option<Arc<ClickHouseStorage>>,
     remote_enabled: AtomicBool,
     config: HybridConfig,
+    write_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,7 @@ pub struct HybridConfig {
     pub clickhouse_url: String,
     pub clickhouse_database: String,
     pub hot_data_hours: i64, // DuckDB keeps last N hours
+    pub max_concurrent_writes: usize,
 }
 
 impl Default for HybridConfig {
@@ -33,6 +35,7 @@ impl Default for HybridConfig {
             clickhouse_url: "http://localhost:8123".to_string(),
             clickhouse_database: "oxidelog".to_string(),
             hot_data_hours: 1,
+            max_concurrent_writes: 16,
         }
     }
 }
@@ -60,6 +63,7 @@ impl HybridStorage {
             local,
             remote,
             remote_enabled: AtomicBool::new(config.clickhouse_enabled),
+            write_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_writes)),
             config,
         })
     }
@@ -72,16 +76,25 @@ impl HybridStorage {
             .insert_batch(events)
             .context("local duckdb insert failed")?;
 
-        // 2. Async write to ClickHouse (non-blocking, best-effort)
+        // 2. Async write to ClickHouse (non-blocking, best-effort with backpressure)
         if self.remote_enabled.load(Ordering::Relaxed) {
             if let Some(remote) = &self.remote {
-                let events = events.to_vec();
-                let remote = Arc::clone(remote);
-                tokio::spawn(async move {
-                    if let Err(err) = remote.insert_batch(&events).await {
-                        error!(error = %err, count = events.len(), "clickhouse async write failed");
-                    }
-                });
+                // Only clone and spawn if we have capacity to write
+                if let Ok(permit) = Arc::clone(&self.write_semaphore).try_acquire_owned() {
+                    let events_vec = events.to_vec();
+                    let remote_clone = Arc::clone(remote);
+                    
+                    tokio::spawn(async move {
+                        let _permit = permit; // Hold permit until write finishes
+                        if let Err(err) = remote_clone.insert_batch(&events_vec).await {
+                            error!(error = %err, count = events_vec.len(), "clickhouse async write failed");
+                        }
+                    });
+                } else {
+                    // Backpressure: drop the remote write if we are at capacity
+                    // Local write is already done, so data is safe in DuckDB
+                    warn!(count = events.len(), "clickhouse write queue full, dropping remote batch to protect system memory");
+                }
             }
         }
 
@@ -98,8 +111,8 @@ impl HybridStorage {
 
         // Determine if we should use ClickHouse based on date_from
         let use_remote = if let Some(date_from_str) = &query.date_from {
-            if let Ok(date_from) = DateTime::parse_from_rfc3339(date_from_str) {
-                date_from.with_timezone(&Utc) < threshold && self.remote.is_some()
+            if let Ok(date_from) = crate::parse_any_date(date_from_str) {
+                date_from < threshold && self.remote.is_some()
             } else {
                 false
             }
@@ -176,8 +189,11 @@ impl HybridStorage {
 
     /// Get storage statistics
     pub async fn stats(&self) -> Result<HybridStats> {
-        // Count events in local DuckDB
-        let local_count = self.local.query_recent(1).map(|_| 0u64).unwrap_or(0);
+        // Count events in local DuckDB (real count)
+        let local_count = match self.local.event_stats() {
+            Ok(stats) => stats.total,
+            Err(_) => 0,
+        };
 
         let (remote_count, remote_size_bytes) = if let Some(remote) = &self.remote {
             match tokio::try_join!(remote.count_events(), remote.database_size()) {
