@@ -251,3 +251,70 @@ pub struct HybridHealth {
     pub remote_ok: bool,
     pub remote_enabled: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+    use fwlog_domain::{ParseStatus, RawLog};
+
+    fn parsed_event(id: &str) -> CanonicalEvent {
+        let raw = RawLog {
+            ingest_time: Utc.timestamp_opt(1_778_808_000, 0).unwrap(),
+            source_addr: "tcp://127.0.0.1:1514".to_string(),
+            raw: format!("raw {id}"),
+        };
+        let mut event = CanonicalEvent::failed(raw, "bad");
+        event.event_id = id.to_string();
+        event.parse_status = ParseStatus::Parsed;
+        event.vendor = Some("Sangfor".to_string());
+        event.product = Some("Firewall".to_string());
+        event.src_ip = Some("192.168.1.10".to_string());
+        event.dst_ip = Some("8.8.8.8".to_string());
+        event.protocol = Some("TCP".to_string());
+        event.action = Some("allow".to_string());
+        event.parse_error = None;
+        event
+    }
+
+    #[test]
+    fn insert_batch_writes_to_local_duckdb_when_clickhouse_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let local = Arc::new(DuckDbStore::open(&db_path).unwrap());
+        let storage = HybridStorage::new(
+            Arc::clone(&local),
+            HybridConfig {
+                clickhouse_enabled: false,
+                ..HybridConfig::default()
+            },
+        )
+        .unwrap();
+
+        let inserted = storage.insert_batch(&[parsed_event("hybrid-local-1")]).unwrap();
+
+        assert_eq!(inserted, 1);
+        assert_eq!(local.event_stats().unwrap().total, 1);
+    }
+
+    #[tokio::test]
+    async fn health_check_reports_local_ok_and_remote_disabled_without_clickhouse() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let local = Arc::new(DuckDbStore::open(&db_path).unwrap());
+        let storage = HybridStorage::new(
+            local,
+            HybridConfig {
+                clickhouse_enabled: false,
+                ..HybridConfig::default()
+            },
+        )
+        .unwrap();
+
+        let health = storage.health_check().await;
+
+        assert!(health.local_ok);
+        assert!(!health.remote_ok);
+        assert!(!health.remote_enabled);
+    }
+}
