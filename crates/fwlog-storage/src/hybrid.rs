@@ -298,6 +298,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn query_events_uses_local_duckdb_when_clickhouse_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("oxidelog.duckdb");
+        let local = Arc::new(DuckDbStore::open(&db_path).unwrap());
+        let storage = HybridStorage::new(
+            Arc::clone(&local),
+            HybridConfig {
+                clickhouse_enabled: false,
+                ..HybridConfig::default()
+            },
+        )
+        .unwrap();
+        let first = parsed_event("hybrid-query-1");
+        let second = parsed_event("hybrid-query-2");
+        storage.insert_batch(&[first.clone(), second.clone()]).unwrap();
+
+        let rows = storage
+            .query_events_with_query(&crate::EventQuery::default(), 10)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|event| event.event_id == first.event_id));
+        assert!(rows.iter().any(|event| event.event_id == second.event_id));
+    }
+
+    #[tokio::test]
     async fn health_check_reports_local_ok_and_remote_disabled_without_clickhouse() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("oxidelog.duckdb");
