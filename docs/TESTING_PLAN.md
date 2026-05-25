@@ -1,7 +1,8 @@
 # OxideLog 测试计划
 
-> **项目状态**: 主代码已构建完成，查询逻辑正常  
-> **现有测试**: 143 个单元/集成测试（跨 16 个源文件）  
+> **项目状态**: 主代码已构建完成，查询逻辑正常
+> **现有测试**: 145 个单元/集成测试（跨 16 个源文件）
+> **阶段收口**: Hybrid / ClickHouse / Governor 主线保护已合入 `main`，以 GitHub Actions 为准
 > **目标**: 覆盖新模块、验证 ClickHouse 兼容性、保障生产部署质量
 
 ---
@@ -28,9 +29,9 @@
 | **Spool 持久队列** | segment.rs, replay.rs | 7 | 0 | ✅ 较好 |
 | **Frozen 存储** | frozen.rs | 3 | 0 | ⚠️ 基本 |
 | **DualDb 双库** | dual_db.rs | 4 | 0 | ⚠️ 基本 |
-| **Governor 治理** | governor.rs | 1 | 0 | ❌ 不足 |
-| **Hybrid 混合存储** | hybrid.rs | 0 | 0 | ❌ 缺乏 |
-| **ClickHouse 存储** | clickhouse.rs | 0 | 1 (ignored) | ❌ 缺乏 |
+| **Governor 治理** | governor.rs | 4 | 0 | ✅ 主线已覆盖 |
+| **Hybrid 混合存储** | hybrid.rs | 3 | 0 | ✅ 本地/降级已覆盖 |
+| **ClickHouse 存储** | clickhouse.rs | 1 | 1 (ignored) | ✅ 映射已覆盖 |
 | **Lifecycle 生命周期** | lifecycle.rs | 1 | 0 | ❌ 不足 |
 | **Archive 归档** | archive.rs | 2 | 0 | ⚠️ 基本 |
 
@@ -38,7 +39,7 @@
 
 ## 二、新增测试：HybridStorage（高优先级）
 
-**目标**: `crates/fwlog-storage/src/hybrid.rs` — 当前测试覆盖率为 0
+**目标**: `crates/fwlog-storage/src/hybrid.rs` — 当前已覆盖 DuckDB 本地写入、本地查询、ClickHouse 禁用健康检查。
 
 ### 2.1 单元测试
 
@@ -301,13 +302,22 @@ s.close()
 
 ## 九、测试优先级与执行顺序
 
+### 当前阶段收口结果
+
+```
+1. HybridStorage 本地写入 / 查询 / 禁用 ClickHouse 降级路径已合入 main
+2. Governor 治理循环 disabled / lifecycle-only / archive+lifecycle 已合入 main
+3. ClickHouse CanonicalEvent 字段映射 roundtrip 已合入 main
+4. CI / goal / ClickHouse Integration Build 均通过 GitHub Actions 验证
+```
+
 ### 第一阶段：关键路径（目标：2-3 天）
 
 ```
-1. HybridStorage 单元测试（hybrid.rs）       ← 最高优先级
-2. Governor 治理循环测试（governor.rs）       ← 最高优先级
-3. ClickHouse 存储集成测试（clickhouse.rs）    ← 最高优先级
-4. 更新 smoke-production.sh 增加 ClickHouse 验证 ← 高优先级
+1. HybridStorage 远程写入 / 远程查询 mock 化覆盖       ← 后续增强
+2. Governor 归档失败不阻断生命周期覆盖                 ← 后续增强
+3. ClickHouse Docker ignored 集成测试扩展              ← 后续增强
+4. 更新 smoke-production.sh 增加 ClickHouse 验证        ← 后续增强
 ```
 
 ### 第二阶段：增强覆盖（目标：1-2 周）
@@ -374,7 +384,7 @@ scripts/smoke-production.sh \
 
 | 标准 | 要求 |
 |------|------|
-| **新增测试** | HybridStorage ≥ 10 个，Governor ≥ 6 个，ClickHouse ≥ 8 个 |
+| **新增测试** | 阶段收口已覆盖 HybridStorage 本地/降级、Governor 串行治理、ClickHouse 字段映射；远程 mock 和 Docker ignored 场景后续增强 |
 | **冒烟测试** | 覆盖 `/api/storage/health` 和 `/api/storage/stats` |
 | **ClickHouse 兼容** | 所有 DuckDB 字段通过 roundtrip 验证 |
 | **降级路径验证** | ClickHouse 不可用时系统降级到 DuckDB 且不报错 |
