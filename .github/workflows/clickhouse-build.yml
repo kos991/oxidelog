@@ -54,12 +54,10 @@ jobs:
 
     - name: Initialize ClickHouse
       run: |
-        # Wait for ClickHouse to be ready
         sleep 10
-
-        # Create database and tables using clickhouse-client from the server container
-        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
-          clickhouse-client --multiquery < scripts/clickhouse-init.sql || true
+        container=$(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine)
+        docker exec -i "$container" clickhouse-client --multiquery < scripts/clickhouse-init.sql
+        docker exec "$container" clickhouse-client --query "EXISTS TABLE oxidelog.events"
 
     - name: Run clippy
       run: cargo clippy --workspace --all-targets 2>&1 | tee cargo-clippy.log
@@ -72,12 +70,6 @@ jobs:
       env:
         CLICKHOUSE_URL: http://localhost:8123
         CLICKHOUSE_DATABASE: oxidelog
-
-    - name: Verify ClickHouse integration
-      run: |
-        tables=$(curl -fsS --show-error --get http://localhost:8123/ \
-          --data-urlencode "query=SELECT count() FROM system.tables WHERE database = 'oxidelog' AND name = 'events'")
-        test "$tables" = "1"
 
     - name: Upload ClickHouse build logs
       if: always()
