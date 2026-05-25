@@ -73,13 +73,10 @@ jobs:
         CLICKHOUSE_URL: http://localhost:8123
         CLICKHOUSE_DATABASE: oxidelog
 
-    - name: Build release
-      run: cargo build --workspace --release --verbose 2>&1 | tee cargo-release-build.log
-
     - name: Verify ClickHouse integration
       run: |
-        curl -fsS "http://localhost:8123/?query=SHOW%20TABLES%20FROM%20oxidelog"
-        curl -fsS "http://localhost:8123/?query=DESCRIBE%20oxidelog.events"
+        printf 'SHOW TABLES FROM oxidelog' | curl -fsS --data-binary @- http://localhost:8123/
+        printf 'DESCRIBE oxidelog.events' | curl -fsS --data-binary @- http://localhost:8123/
 
     - name: Upload ClickHouse build logs
       if: always()
