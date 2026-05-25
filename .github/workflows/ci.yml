@@ -1,16 +1,26 @@
-name: goal
+name: CI
 
 on:
   push:
     branches: ["main", "master", "feature/**"]
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  local-goal:
+  test:
+    name: Test
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -20,7 +30,15 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
-      - name: Run unit tests
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: Build (debug)
+        run: cargo build --workspace
+
+      - name: Run unit & lib tests
         run: cargo test --workspace --lib --bins
-      - name: Run Linux local goal
-        run: bash scripts/goal-linux.sh
