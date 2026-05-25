@@ -313,6 +313,54 @@ fn parse_status_from_str(value: &str) -> ParseStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn canonical_event_round_trips_through_clickhouse_row() {
+        let event = CanonicalEvent {
+            event_id: "evt-1".to_string(),
+            ingest_time: Utc.timestamp_opt(1_778_808_000, 123_000_000).unwrap(),
+            source_addr: "udp://192.168.1.10:514".to_string(),
+            device_id: Some("fw-edge-01".to_string()),
+            event_time: Some(Utc.timestamp_opt(1_778_807_940, 456_000_000).unwrap()),
+            vendor: Some("Sangfor".to_string()),
+            product: Some("Firewall".to_string()),
+            src_ip: Some("192.168.1.20".to_string()),
+            src_port: Some(54_321),
+            dst_ip: Some("10.0.0.8".to_string()),
+            dst_port: Some(443),
+            protocol: Some("TCP".to_string()),
+            action: Some("allow".to_string()),
+            severity: Some("medium".to_string()),
+            raw: "src=192.168.1.20 dst=10.0.0.8 action=allow".to_string(),
+            parse_status: ParseStatus::Partial,
+            parse_error: Some("missing policy id".to_string()),
+        };
+
+        let row = ClickHouseEvent::from(&event);
+
+        assert_eq!(row.event_id, event.event_id);
+        assert_eq!(row.ingest_time, event.ingest_time);
+        assert_eq!(row.source_addr, event.source_addr);
+        assert_eq!(row.device_id, "fw-edge-01");
+        assert_eq!(row.event_time, event.event_time.unwrap());
+        assert_eq!(row.vendor, "Sangfor");
+        assert_eq!(row.product, "Firewall");
+        assert_eq!(row.src_ip, "192.168.1.20");
+        assert_eq!(row.src_port, 54_321);
+        assert_eq!(row.dst_ip, "10.0.0.8");
+        assert_eq!(row.dst_port, 443);
+        assert_eq!(row.protocol, "TCP");
+        assert_eq!(row.action, "allow");
+        assert_eq!(row.severity, "medium");
+        assert_eq!(row.raw, event.raw);
+        assert_eq!(row.parse_status, "partial");
+        assert_eq!(row.parse_error, "missing policy id");
+
+        let round_tripped = CanonicalEvent::from(row);
+
+        assert_eq!(round_tripped, event);
+    }
 
     #[tokio::test]
     #[ignore] // Requires running ClickHouse
