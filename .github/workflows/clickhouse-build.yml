@@ -78,13 +78,8 @@ jobs:
 
     - name: Verify ClickHouse integration
       run: |
-        # Check if ClickHouse tables exist
-        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
-          clickhouse-client --query "SHOW TABLES FROM oxidelog"
-
-        # Check table structure
-        docker exec $(docker ps -q -f ancestor=clickhouse/clickhouse-server:24.3-alpine) \
-          clickhouse-client --query "DESCRIBE oxidelog.events"
+        curl -fsS "http://localhost:8123/?query=SHOW%20TABLES%20FROM%20oxidelog"
+        curl -fsS "http://localhost:8123/?query=DESCRIBE%20oxidelog.events"
 
     - name: Upload ClickHouse build logs
       if: always()
